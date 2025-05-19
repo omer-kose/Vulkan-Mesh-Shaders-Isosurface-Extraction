@@ -6,7 +6,7 @@
 
 #include <camera.h>
 
-#include <Pass/GLTFMetallicPass.h>
+#include <Pass/MeshShaderTriangleTestPass.h>
 
 struct DeletionQueue
 {
@@ -212,9 +212,6 @@ public:
 
 	// Main Draw Context
 	DrawContext mainDrawContext;
-
-	// Loaded scenes
-	std::unordered_map<std::string, std::shared_ptr<LoadedGLTF>> loadedScenes;
 
 	// Draw Resources
 	GPUSceneData sceneData;

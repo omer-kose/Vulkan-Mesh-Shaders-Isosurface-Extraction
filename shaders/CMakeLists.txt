@@ -1,12 +1,11 @@
 if(WIN32)
     add_definitions(-DNOMINMAX)
     set(GLSL_COMPILER glslangValidator.exe)
-    set(GLSL_COMPILER_FLAGS -gVS -V)
+    set(GLSL_COMPILER_FLAGS -gVS -V --target-env spirv1.4)
 else()
     set(GLSL_COMPILER glslangValidator)
-    set(GLSL_COMPILER_FLAGS -gVS -V)
+    set(GLSL_COMPILER_FLAGS -gVS -V --target-env spirv1.4)
 endif(WIN32)
-
 
 file(GLOB_RECURSE GLSL_SOURCE_FILES CONFIGURE_DEPENDS "glsl/*")
 

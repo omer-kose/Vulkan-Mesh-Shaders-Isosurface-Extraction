@@ -12,6 +12,7 @@
 #include <Core/vk_pipelines.h>
 #include "VkBootstrap.h"
 
+#define VOLK_IMPLEMENTATION
 #define VMA_IMPLEMENTATION
 #include "vk_mem_alloc.h"
 
@@ -20,7 +21,6 @@
 #include "imgui_impl_vulkan.h"
 
 #include <glm/gtx/transform.hpp>
-
 
 constexpr bool bUseValidationLayers = true;
 
@@ -68,9 +68,9 @@ void VulkanEngine::init()
     // everything went fine
     isInitialized = true;
 
-    m_initCamera(glm::vec3(30.f, -0.0f, -85.0f), 0.0f, 0.0f);
+    m_initCamera(glm::vec3(0.f, 0.0f, 0.0f), 0.0f, 0.0f);
     
-    m_loadSceneData();
+    // m_loadSceneData();
 }
 
 void VulkanEngine::cleanup()
@@ -92,8 +92,6 @@ void VulkanEngine::cleanup()
 
             frames[i].deletionQueue.flush();
         }
-
-        loadedScenes.clear();
 
         m_clearMaterialLayouts();
 
@@ -237,7 +235,7 @@ void VulkanEngine::drawMain(VkCommandBuffer cmd)
 void VulkanEngine::drawGeometry(VkCommandBuffer cmd)
 {
     // Go through all the graphics passes and execute them
-    GLTFMetallicPass::Execute(this, cmd);
+    MeshShaderTriangleTestPass::Execute(this, cmd);
 
     // Drawing is done context can be cleared
     mainDrawContext.opaqueGLTFSurfaces.clear();
@@ -259,8 +257,6 @@ void VulkanEngine::updateScene()
     auto start = std::chrono::system_clock::now();
 
     mainCamera.update();
-
-    loadedScenes["structure"]->registerDraw(glm::mat4(1.0f), mainDrawContext);
 
     sceneData.view = mainCamera.getViewMatrix();
     // camera projection
@@ -584,6 +580,9 @@ const DrawContext* VulkanEngine::getDrawContext() const
 
 void VulkanEngine::m_initVulkan()
 {
+    // Initialize Volk first (loads function ptr loader)
+    volkInitialize();
+
     vkb::InstanceBuilder builder;
 
     // Create the Vulkan instance with basic debug features.
@@ -599,6 +598,9 @@ void VulkanEngine::m_initVulkan()
     instance = vkbInstance.instance;
     debugMessenger = vkbInstance.debug_messenger;
 
+    // Load instance-level functions
+    volkLoadInstance(instance);
+
     SDL_Vulkan_CreateSurface(window, instance, &surface);
 
     // Vulkan 1.3 features
@@ -610,6 +612,13 @@ void VulkanEngine::m_initVulkan()
     VkPhysicalDeviceVulkan12Features features12{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
     features12.bufferDeviceAddress = true;
     features12.descriptorIndexing = true;
+    features12.shaderInt8 = true;
+    features12.storageBuffer8BitAccess = true;
+    features12.uniformAndStorageBuffer8BitAccess = true;
+
+    VkPhysicalDeviceMeshShaderFeaturesEXT meshShaderFeatures{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT };
+    meshShaderFeatures.taskShader = true;
+    meshShaderFeatures.meshShader = true;
 
     // Use vkbootstrap to select a gpu with Vulkan 1.3 and necessary features
     vkb::PhysicalDeviceSelector selector{vkbInstance};
@@ -617,6 +626,8 @@ void VulkanEngine::m_initVulkan()
         .set_minimum_version(1, 3)
         .set_required_features_13(features13)
         .set_required_features_12(features12)
+        .add_required_extension(VK_EXT_MESH_SHADER_EXTENSION_NAME)
+        .add_required_extension_features(meshShaderFeatures)
         .set_surface(surface)
         .select()
         .value();
@@ -632,12 +643,21 @@ void VulkanEngine::m_initVulkan()
     graphicsQueue = vkbDevice.get_queue(vkb::QueueType::graphics).value();
     graphicsQueueFamily = vkbDevice.get_queue_index(vkb::QueueType::graphics).value();
 
+    // Load device-level functions (including mesh shader extensions)
+    volkLoadDevice(device);
+
     // Initialize the memory allocator
+    const VmaVulkanFunctions vmaFunctions{
+    .vkGetInstanceProcAddr = vkGetInstanceProcAddr,
+    .vkGetDeviceProcAddr = vkGetDeviceProcAddr,
+    };
+
     VmaAllocatorCreateInfo allocatorInfo = {};
     allocatorInfo.physicalDevice = chosenGPU;
     allocatorInfo.device = device;
     allocatorInfo.instance = instance;
     allocatorInfo.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
+    allocatorInfo.pVulkanFunctions = &vmaFunctions;
     vmaCreateAllocator(&allocatorInfo, &vmaAllocator);
 
     mainDeletionQueue.pushFunction([=](){
@@ -878,12 +898,12 @@ void VulkanEngine::m_initDescriptors()
 
 void VulkanEngine::m_initPasses()
 {
-    GLTFMetallicPass::Init(this);
+    MeshShaderTriangleTestPass::Init(this);
 }
 
 void VulkanEngine::m_clearPassResources()
 {
-    GLTFMetallicPass::ClearResources(this);
+    MeshShaderTriangleTestPass::ClearResources(this);
 }
 
 void VulkanEngine::m_initMaterialLayouts()
@@ -1055,8 +1075,5 @@ void VulkanEngine::m_initCamera(glm::vec3 position, float pitch, float yaw)
 
 void VulkanEngine::m_loadSceneData()
 {
-    std::string structurePath = "../../assets/structure.glb";
-    auto loadedStructureScene = loadGltf(this, structurePath);
-    assert(loadedStructureScene.has_value());
-    loadedScenes["structure"] = loadedStructureScene.value();
+    return;
 }

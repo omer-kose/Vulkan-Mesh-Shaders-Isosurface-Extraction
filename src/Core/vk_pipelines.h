@@ -9,6 +9,7 @@ public:
     VkPipeline buildPipeline(VkDevice device);
 
     void setShaders(VkShaderModule vertexShader, VkShaderModule fragmentShader);
+    void pushShaderStage(VkShaderModule shaderModule, VkShaderStageFlagBits stage);
     void setInputTopology(VkPrimitiveTopology topology);
     void setPolygonMode(VkPolygonMode polygonMode);
     void setCullMode(VkCullModeFlags cullMode, VkFrontFace frontFace);
