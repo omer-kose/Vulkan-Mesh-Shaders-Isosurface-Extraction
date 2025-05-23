@@ -271,7 +271,7 @@ void VulkanEngine::updateScene()
     //some default lighting parameters
     sceneData.ambientColor = glm::vec4(0.1f);
     sceneData.sunlightColor = glm::vec4(1.0f);
-    sceneData.sunlightDirection = glm::vec4(0.0f, 1.0f, 0.5f, 1.0f);
+    sceneData.sunlightDirection = glm::vec4(0.0f, -1.0f, -0.5f, 1.0f);
 
     auto end = std::chrono::system_clock::now();
     // Convert to microseconds (integer), then come back to miliseconds

@@ -1,6 +1,9 @@
 #version 450
 
-layout (location = 0) out vec4 color;
+#extension GL_GOOGLE_include_directive : require
+#include "input_structures.h"
+
+layout (location = 0) out vec4 outFragColor;
 
 layout(location = 0) in MeshIn
 {
@@ -9,5 +12,11 @@ layout(location = 0) in MeshIn
 
 void main()
 {
-  color = vec4(meshIn.normal,1.0);
+	vec3 normal = meshIn.normal;
+	float lightValue = max(dot(normal, sceneData.sunlightDirection.xyz), 0.1f);
+
+	vec3 color = vec3(0.5f);
+	vec3 ambient = color *  sceneData.ambientColor.xyz;
+
+	outFragColor = vec4(color * lightValue * sceneData.sunlightColor.w + ambient, 1.0f);
 }

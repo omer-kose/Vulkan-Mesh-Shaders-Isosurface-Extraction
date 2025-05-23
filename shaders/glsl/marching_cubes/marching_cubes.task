@@ -56,19 +56,16 @@ void main()
 		// See if our cube intersects the isosurface
 		bool accept = (cube_index != 0 && cube_index != 0xFF);
 
-		// Gather which lanes have an intersected cube and get the index where to put ours (if we have a valid one)
-		uvec4 ballot = subgroupBallot(accept);
+		uint payloadIndex = subgroupExclusiveAdd(uint(accept));
 
 		if (accept)
 		{
-			uint index = bitCount(ballot.x & ((1 << thread_id) - 1));
-
 			// Output a linear meshlet ID for the mesh shader
 			uint meshlet_id = ((((mi_z + z) << SHIFT) + mi_y + y) << SHIFT) + mi_x + x;
-			taskPayload.meshlets[count + index].MeshletID = meshlet_id;
+			taskPayload.meshlets[count + payloadIndex].MeshletID = meshlet_id;
 		}
 
-		count += bitCount(ballot.x);
+		count += subgroupAdd(uint(accept));
 	}
 
     EmitMeshTasksEXT(count, 1, 1);

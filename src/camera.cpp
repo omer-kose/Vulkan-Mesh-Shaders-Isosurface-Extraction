@@ -18,14 +18,15 @@ glm::mat4 Camera::getRotationMatrix()
 
 void Camera::processSDLEvent(SDL_Event& e)
 {
+    // TODO: Camera movement stutters when consecutive opposite direction input is given
     if(e.type == SDL_KEYDOWN) 
     {
-        if(e.key.keysym.sym == SDLK_w) { velocity.z = -0.1; }
-        if(e.key.keysym.sym == SDLK_s) { velocity.z = 0.1; }
-        if(e.key.keysym.sym == SDLK_a) { velocity.x = -0.1; }
-        if(e.key.keysym.sym == SDLK_d) { velocity.x = 0.1; }
-        if(e.key.keysym.sym == SDLK_SPACE) { velocity.y = 0.1; }
-        if(e.key.keysym.sym == SDLK_LCTRL) { velocity.y = -0.1; }
+        if(e.key.keysym.sym == SDLK_w) { velocity.z = -0.05; }
+        if(e.key.keysym.sym == SDLK_s) { velocity.z = 0.05; }
+        if(e.key.keysym.sym == SDLK_a) { velocity.x = -0.05; }
+        if(e.key.keysym.sym == SDLK_d) { velocity.x = 0.05; }
+        if(e.key.keysym.sym == SDLK_SPACE) { velocity.y = 0.05; }
+        if(e.key.keysym.sym == SDLK_LCTRL) { velocity.y = -0.05; }
     }
 
     if(e.type == SDL_KEYUP) 
@@ -56,5 +57,5 @@ void Camera::processSDLEvent(SDL_Event& e)
 void Camera::update()
 {
 	glm::mat4 cameraRotation = getRotationMatrix();
-	position += glm::vec3(cameraRotation * glm::vec4(0.5f * velocity, 0.0f));
+	position += glm::vec3(cameraRotation * glm::vec4(velocity, 0.0f));
 }

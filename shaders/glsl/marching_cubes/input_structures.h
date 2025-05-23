@@ -26,9 +26,8 @@ struct TaskPayload
 // For testing purposes:
 float field(vec3 pos)
 {
-	vec3 center = vec3(0.0, 0.0, 0.0);
-	float radius = 1.0;
-
-	// Signed distance function for a sphere
+	// Unit sphere centered in [0,1] grid
+	vec3 center = vec3(0.5);
+	float radius = 0.25;
 	return length(pos - center) - radius;
 }

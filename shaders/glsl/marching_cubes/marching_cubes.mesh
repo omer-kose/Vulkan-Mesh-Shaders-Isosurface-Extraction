@@ -109,7 +109,7 @@ void main()
 
 		// Output final vertex
 		gl_MeshVerticesEXT[thread_id].gl_Position = sceneData.viewproj * vec4(pos, 1.0f);
-		meshOut[thread_id].normal = vec3(1.0);
+		meshOut[thread_id].normal = normal;
 	}
 
 	if (thread_id < triangle_count) 
