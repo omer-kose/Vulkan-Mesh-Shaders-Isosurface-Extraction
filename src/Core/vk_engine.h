@@ -7,6 +7,7 @@
 #include <camera.h>
 
 #include <Pass/MeshShaderTriangleTestPass.h>
+#include <Pass/MarchingCubesPass.h>
 
 struct DeletionQueue
 {
@@ -112,6 +113,8 @@ public:
 
 	// Engine utilities (TODO: For the time being most of the stuff are directly open to outside but I will be slowly hiding them)
 	AllocatedBuffer createBuffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage);
+	// Allocates a buffer on local device memory and uploads the given data using a stage buffer
+	AllocatedBuffer createAndUploadGPUBuffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage, void* data, size_t srcOffset = 0, size_t dstOffset=0);
 	void destroyBuffer(const AllocatedBuffer& buffer);
 
 	AllocatedImage createImage(VkExtent3D imageExtent, VkFormat format, VkImageUsageFlags usage, bool mipMapped = false);

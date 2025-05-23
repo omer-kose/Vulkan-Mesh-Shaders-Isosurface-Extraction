@@ -44,7 +44,6 @@ void MeshShaderTriangleTestPass::Init(VulkanEngine* engine)
     pipelineBuilder.setDepthFormat(engine->depthImage.imageFormat);
 
     pipelineBuilder.pipelineLayout = PipelineLayout;
-    // Opaque Pipeline
     Pipeline = pipelineBuilder.buildPipeline(engine->device);
 
     // ShaderModules are not needed anymore

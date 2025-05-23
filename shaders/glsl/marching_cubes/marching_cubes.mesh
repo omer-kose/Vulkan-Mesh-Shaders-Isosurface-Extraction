@@ -1,0 +1,149 @@
+#version 450
+#extension GL_GOOGLE_include_directive : enable
+#extension GL_EXT_mesh_shader : require
+#extension GL_EXT_shader_8bit_storage: require
+#extension GL_KHR_shader_subgroup_ballot : require
+#extension GL_KHR_shader_subgroup_shuffle_relative : require
+#extension GL_EXT_scalar_block_layout : require
+
+#include "input_structures.h"
+
+struct MarchingCubesLookup
+{
+	uint    Indices[4];
+	uint8_t Vertices[12];
+	uint8_t TriangleCount;
+	uint8_t VertexCount;
+};
+
+layout(set = 1, binding = 0, scalar) uniform MarchingCubesLookupTable
+{
+	MarchingCubesLookup marchingCubesLookupTable[256];
+};
+
+layout(location = 0) out MeshOut
+{
+	vec3 normal;
+} meshOut[];
+
+taskPayloadSharedEXT TaskPayload taskPayload;
+
+// 8 intermediate corner values and normals in LDS
+struct Corner
+{
+	vec3 normal;
+	float value;
+};
+shared Corner corners[8];
+
+layout(local_size_x = 32) in;
+layout(triangles, max_vertices = 12, max_primitives = 5) out;
+void main()
+{
+	const uint thread_id  = gl_LocalInvocationID.x;
+	const uint meshlet_id = taskPayload.meshlets[gl_WorkGroupID.x].MeshletID;
+
+	// Convert linear meshlet_id into x, y and z coordinates
+	uint mi_x = (meshlet_id >> (0*SHIFT)) & (GRID_SIZE - 1);
+	uint mi_y = (meshlet_id >> (1*SHIFT)) & (GRID_SIZE - 1);
+	uint mi_z = (meshlet_id >> (2*SHIFT));
+
+	// Corner positions of the cube
+	vec3 corner_pos0 = vec3(mi_x, mi_y, mi_z) * STEP_SIZE;
+	vec3 corner_pos1 = corner_pos0 + STEP_SIZE;
+
+	// First 8 lanes evaluate the field for each corner, the other 24 evaluate at offsetted positions in x, y and z so we can compute a normal at each corner from the field gradient
+	vec3 pos = vec3((thread_id & 1) != 0? corner_pos1.x : corner_pos0.x, (thread_id & 2) != 0? corner_pos1.y : corner_pos0.y, (thread_id & 4) != 0? corner_pos1.z : corner_pos0.z);
+
+	const float epsilon = (1.0f / 16.0f) * STEP_SIZE;
+	uint off = thread_id / 8;
+	pos.x += (off == 1)? epsilon : 0.0f;
+	pos.y += (off == 2)? epsilon : 0.0f;
+	pos.z += (off == 3)? epsilon : 0.0f;
+
+	// Evaluate the field function for all 32 lanes
+	float value = field(pos);
+
+	// Grab data from other lanes so we can compute the normal by computing the difference in value in x, y and z directions.
+	vec3 normal;
+	normal.x = subgroupShuffleDown(value, 8);
+	normal.y = subgroupShuffleDown(value, 16);
+	normal.z = subgroupShuffleDown(value, 24);
+
+	// Save intermediates to LDS. Corner positions can be computed directly from indices, so no need to put in LDS.
+	if (thread_id < 8)
+	{
+		Corner corner;
+		corner.normal = normalize(value - normal);
+		corner.value = value;
+		corners[thread_id] = corner;
+	}
+
+	// Look up the Marching Cubes index from the signs of corner nodes. Only the lowest 8 lanes are relevant here, hence the 0xFF mask.
+	uvec4 ballot = subgroupBallot(value >= 0.0f);
+	uint index = (ballot.x & 0xFF);
+
+	const uint vertex_count = uint(marchingCubesLookupTable[index].VertexCount);
+	const uint triangle_count = uint(marchingCubesLookupTable[index].TriangleCount);
+	if (thread_id == 0)
+	{
+        SetMeshOutputsEXT(vertex_count, triangle_count);
+	}
+
+	// Output up to 12 vertices, one lane per vertex
+	if (thread_id < uint(marchingCubesLookupTable[index].VertexCount))
+	{
+		// Look up the corner indices for this edge
+		uint edge = uint(marchingCubesLookupTable[index].Vertices[thread_id]);
+		uint i0 = edge & 0x7;
+		uint i1 = edge >> 3;
+
+		// Corner positions
+		vec3 pos0 = vec3((i0 & 1) != 0? corner_pos1.x : corner_pos0.x, (i0 & 2) != 0? corner_pos1.y : corner_pos0.y, (i0 & 4) != 0? corner_pos1.z : corner_pos0.z);
+		vec3 pos1 = vec3((i1 & 1) != 0? corner_pos1.x : corner_pos0.x, (i1 & 2) != 0? corner_pos1.y : corner_pos0.y, (i1 & 4) != 0? corner_pos1.z : corner_pos0.z);
+
+		// Interpolate position and normal
+		float mix_f = corners[i0].value / (corners[i0].value - corners[i1].value);
+		vec3 pos    = mix(pos0, pos1, mix_f);
+		vec3 normal = mix(corners[i0].normal, corners[i1].normal, mix_f);
+
+		// Output final vertex
+		gl_MeshVerticesEXT[thread_id].gl_Position = sceneData.viewproj * vec4(pos, 1.0f);
+		meshOut[thread_id].normal = vec3(1.0);
+	}
+
+	if (thread_id < triangle_count) 
+	{
+		uint base = thread_id * 3;    // Start index for the triangle (0, 3, 6, ...)
+		uint word = base / 4;         // Which uint contains the first index
+		uint shift = (base % 4) * 8;  // Bit offset within the uint (0, 8, 16, or 24)
+
+		uint i0, i1, i2;
+
+		// Always fetch i0 from the current uint
+		i0 = (marchingCubesLookupTable[index].Indices[word] >> shift) & 0xFF;
+
+		// Fetch i1 and i2 based on shift position
+		if (shift <= 8) 
+		{
+			// All three indices fit in the current uint
+			i1 = (marchingCubesLookupTable[index].Indices[word] >> (shift + 8)) & 0xFF;
+			i2 = (marchingCubesLookupTable[index].Indices[word] >> (shift + 16)) & 0xFF;
+		} 
+		else if (shift == 16) 
+		{
+			// i0 and i1 in current uint, i2 in next uint
+			i1 = (marchingCubesLookupTable[index].Indices[word] >> 24) & 0xFF;
+			i2 = (marchingCubesLookupTable[index].Indices[word + 1] >> 0) & 0xFF;
+		}
+		else 
+		{ 	
+			// shift == 24
+			// i0 in current uint, i1 and i2 in next uint
+			i1 = (marchingCubesLookupTable[index].Indices[word + 1] >> 0) & 0xFF;
+			i2 = (marchingCubesLookupTable[index].Indices[word + 1] >> 8) & 0xFF;
+		}
+
+		gl_PrimitiveTriangleIndicesEXT[thread_id] = uvec3(i0, i1, i2);
+	}
+}

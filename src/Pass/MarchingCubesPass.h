@@ -1,10 +1,12 @@
 #pragma once
 #include <Core/vk_types.h>
 
+#include "MarchingCubesLookup.h"
+
 class VulkanEngine;
 struct RenderObject;
 
-class GLTFMetallicPass
+class MarchingCubesPass
 {
 public:
 	static void Init(VulkanEngine* engine);
@@ -12,7 +14,9 @@ public:
 	static void Update();
 	static void ClearResources(VulkanEngine* engine);
 private:
-	static VkPipeline OpaquePipeline;
-	static VkPipeline TransparentPipeline;
-	static VkPipelineLayout PipelineLayout; // both transparent and opaque objects use the same pipeline layout
+	static VkPipeline Pipeline;
+	static VkPipelineLayout PipelineLayout;
+	static VkDescriptorSet MCDescriptorSet; // set=1
+	// Resources
+	static AllocatedBuffer MCLookupTableBuffer; // set=1 binding=0 uniform buffer
 };

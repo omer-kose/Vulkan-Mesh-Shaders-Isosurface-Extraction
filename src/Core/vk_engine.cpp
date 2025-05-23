@@ -68,7 +68,7 @@ void VulkanEngine::init()
     // everything went fine
     isInitialized = true;
 
-    m_initCamera(glm::vec3(0.f, 0.0f, 0.0f), 0.0f, 0.0f);
+    m_initCamera(glm::vec3(0.f, 0.0f, 5.0f), 0.0f, 0.0f);
     
     // m_loadSceneData();
 }
@@ -235,7 +235,8 @@ void VulkanEngine::drawMain(VkCommandBuffer cmd)
 void VulkanEngine::drawGeometry(VkCommandBuffer cmd)
 {
     // Go through all the graphics passes and execute them
-    MeshShaderTriangleTestPass::Execute(this, cmd);
+    //MeshShaderTriangleTestPass::Execute(this, cmd);
+    MarchingCubesPass::Execute(this, cmd);
 
     // Drawing is done context can be cleared
     mainDrawContext.opaqueGLTFSurfaces.clear();
@@ -390,6 +391,30 @@ AllocatedBuffer VulkanEngine::createBuffer(size_t allocSize, VkBufferUsageFlags 
     AllocatedBuffer newBuffer;
 
     VK_CHECK(vmaCreateBuffer(vmaAllocator, &bufferInfo, &vmaAllocInfo, &newBuffer.buffer, &newBuffer.allocation, &newBuffer.allocInfo));
+
+    return newBuffer;
+}
+
+AllocatedBuffer VulkanEngine::createAndUploadGPUBuffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage, void* data, size_t srcOffset, size_t dstOffset)
+{
+    AllocatedBuffer newBuffer = createBuffer(allocSize, usage, memoryUsage);
+
+    AllocatedBuffer staging = createBuffer(allocSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
+    void* pStaging = staging.allocation->GetMappedData();
+
+    // Copy The Lookup Table into the staging buffer
+    memcpy(pStaging, data, allocSize);
+
+    immediateSubmit([&](VkCommandBuffer cmd) {
+        VkBufferCopy copy{};
+        copy.dstOffset = dstOffset;
+        copy.srcOffset = srcOffset;
+        copy.size = allocSize;
+
+        vkCmdCopyBuffer(cmd, staging.buffer, newBuffer.buffer, 1, &copy);
+    });
+
+    destroyBuffer(staging);
 
     return newBuffer;
 }
@@ -615,6 +640,7 @@ void VulkanEngine::m_initVulkan()
     features12.shaderInt8 = true;
     features12.storageBuffer8BitAccess = true;
     features12.uniformAndStorageBuffer8BitAccess = true;
+    features12.scalarBlockLayout = true;
 
     VkPhysicalDeviceMeshShaderFeaturesEXT meshShaderFeatures{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT };
     meshShaderFeatures.taskShader = true;
@@ -855,7 +881,7 @@ void VulkanEngine::m_initDescriptors()
     {
         DescriptorLayoutBuilder builder;
         builder.addBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
-        sceneDataDescriptorLayout = builder.build(device, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
+        sceneDataDescriptorLayout = builder.build(device, VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_FRAGMENT_BIT);
     }
 
     // Allocate a descriptor set for the draw image
@@ -899,11 +925,13 @@ void VulkanEngine::m_initDescriptors()
 void VulkanEngine::m_initPasses()
 {
     MeshShaderTriangleTestPass::Init(this);
+    MarchingCubesPass::Init(this);
 }
 
 void VulkanEngine::m_clearPassResources()
 {
     MeshShaderTriangleTestPass::ClearResources(this);
+    MarchingCubesPass::ClearResources(this);
 }
 
 void VulkanEngine::m_initMaterialLayouts()
