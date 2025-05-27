@@ -13,74 +13,74 @@ shared uint values[BLOCK_PLUS_1][BLOCK_PLUS_1][BLOCK_PLUS_1]; // intermediate va
 layout(local_size_x = 32) in;
 void main()
 {
-	uint thread_id = gl_LocalInvocationID.x;
-	uint workgroup_id = gl_WorkGroupID.x;
+	uint threadID = gl_LocalInvocationID.x;
+	uint workgroupID = gl_WorkGroupID.x;
 
 	// Convert linear workgroud id (or meshlet id) into absolute x, y and z coordinates. 
-    uint blocks_x = (GRID_X + BLOCK_SIZE - 1) / BLOCK_SIZE;
-    uint blocks_y = (GRID_Y + BLOCK_SIZE - 1) / BLOCK_SIZE;
-    uint blocks_z = (GRID_Z + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    uint numBlocksX = (GRID_X + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    uint numBlocksY = (GRID_Y + BLOCK_SIZE - 1) / BLOCK_SIZE;
 
-    uint block_id_z = workgroup_id / (blocks_x * blocks_y);
-    uint remaining = workgroup_id % (blocks_x * blocks_y);
-    uint block_id_y = remaining / blocks_x;
-    uint block_id_x = remaining % blocks_x;
+    uint blockID_Z = workgroupID / (numBlocksX * numBlocksY);
+    uint remaining = workgroupID % (numBlocksX * numBlocksY);
+    uint blockID_Y = remaining / numBlocksX;
+    uint blockID_X = remaining % numBlocksX;
 
-    uint mi_x = block_id_x * BLOCK_SIZE;
-    uint mi_y = block_id_y * BLOCK_SIZE;
-    uint mi_z = block_id_z * BLOCK_SIZE;
+	// index of the first voxel in the block
+    uint firstVoxelID_X = blockID_X * BLOCK_SIZE;
+    uint firstVoxelID_Y = blockID_Y * BLOCK_SIZE;
+    uint firstVoxelID_Z = blockID_Z * BLOCK_SIZE;
 
 	// Evaluate the corner values for blocks
-	for (uint i = thread_id; i < BLOCK_PLUS_1 * BLOCK_PLUS_1 * BLOCK_PLUS_1; i += 32)
+	for (uint i = threadID; i < BLOCK_PLUS_1 * BLOCK_PLUS_1 * BLOCK_PLUS_1; i += 32)
 	{
         uint x = i % BLOCK_PLUS_1;
         uint y = (i / BLOCK_PLUS_1) % BLOCK_PLUS_1;
         uint z = i / (BLOCK_PLUS_1 * BLOCK_PLUS_1);
 
         // Skip out-of-bounds samples
-        if (mi_x + x >= GRID_X || mi_y + y >= GRID_Y || mi_z + z >= GRID_Z) 
+        if (firstVoxelID_X + x >= GRID_X || firstVoxelID_Y + y >= GRID_Y || firstVoxelID_Z + z >= GRID_Z) 
 		{
             values[z][y][x] = 0;  // Initialize to avoid garbage (not fetched regardless)
             continue;
         }
 
-		vec3 pos = vec3(mi_x + x, mi_y + y, mi_z + z) / vec3(GRID_X, GRID_Y, GRID_Z);
+		vec3 pos = vec3(firstVoxelID_X + x, firstVoxelID_Y + y, firstVoxelID_Z + z) / vec3(GRID_X, GRID_Y, GRID_Z);
 		values[z][y][x] = (field(pos) >= 0.0f) ? 1 : 0;
 	}
 
 	// Two loops, all lanes used
 	uint count = 0;
-	for (uint i = thread_id; i < BLOCK_VOLUME; i += 32)
+	for (uint i = threadID; i < BLOCK_VOLUME; i += 32)
 	{
         uint x = i % BLOCK_SIZE;
         uint y = (i / BLOCK_SIZE) % BLOCK_SIZE;
         uint z = i / (BLOCK_SIZE * BLOCK_SIZE);
 
         // Skip voxels outside the grid
-        if (mi_x + x >= GRID_X || mi_y + y >= GRID_Y || mi_z + z >= GRID_Z) continue;
+        if (firstVoxelID_X + x >= GRID_X || firstVoxelID_Y + y >= GRID_Y || firstVoxelID_Z + z >= GRID_Z) continue;
 
 		// Collect the sign bits for the cube corners. If all are zeros or all ones we're either fully inside or outside
 		// the surface, so no triangles will be generated. In all other cases, the isosurface cuts through the cube somewhere.
-		uint cube_index;
-		cube_index  = (values[z + 0][y + 0][x + 0] << 0);
-		cube_index |= (values[z + 0][y + 0][x + 1] << 1);
-		cube_index |= (values[z + 0][y + 1][x + 0] << 2);
-		cube_index |= (values[z + 0][y + 1][x + 1] << 3);
-		cube_index |= (values[z + 1][y + 0][x + 0] << 4);
-		cube_index |= (values[z + 1][y + 0][x + 1] << 5);
-		cube_index |= (values[z + 1][y + 1][x + 0] << 6);
-		cube_index |= (values[z + 1][y + 1][x + 1] << 7);
+		uint cubeIndex;
+		cubeIndex  = (values[z + 0][y + 0][x + 0] << 0);
+		cubeIndex |= (values[z + 0][y + 0][x + 1] << 1);
+		cubeIndex |= (values[z + 0][y + 1][x + 0] << 2);
+		cubeIndex |= (values[z + 0][y + 1][x + 1] << 3);
+		cubeIndex |= (values[z + 1][y + 0][x + 0] << 4);
+		cubeIndex |= (values[z + 1][y + 0][x + 1] << 5);
+		cubeIndex |= (values[z + 1][y + 1][x + 0] << 6);
+		cubeIndex |= (values[z + 1][y + 1][x + 1] << 7);
 
 		// See if our cube intersects the isosurface
-		bool accept = (cube_index != 0 && cube_index != 0xFF);
+		bool accept = (cubeIndex != 0 && cubeIndex != 0xFF);
 
 		uint payloadIndex = subgroupExclusiveAdd(uint(accept));
 
 		if (accept)
 		{
 			// Output a unique meshlet ID for the mesh shader to decode (simply flattening the voxel index in (x,y,z) to a single float which can be easily converted back to voxel index)
-			uint meshlet_id = (mi_z + z) * GRID_Y * GRID_X + (mi_y + y) * GRID_X + (mi_x + x);
-			taskPayload.meshlets[count + payloadIndex].MeshletID = meshlet_id;
+			uint meshledID = (firstVoxelID_Z + z) * GRID_Y * GRID_X + (firstVoxelID_Y + y) * GRID_X + (firstVoxelID_X + x);
+			taskPayload.meshlets[count + payloadIndex].meshletID = meshledID;
 		}
 
 		count += subgroupAdd(uint(accept));

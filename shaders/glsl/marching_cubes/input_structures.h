@@ -21,7 +21,7 @@ const uint GRID_Z = 128;
 // Task shader to mesh shader I/O
 struct MeshletData
 {
-	uint MeshletID;
+	uint meshletID;
 };
 
 struct TaskPayload

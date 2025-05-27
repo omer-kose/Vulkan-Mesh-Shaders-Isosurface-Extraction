@@ -68,7 +68,7 @@ void VulkanEngine::init()
     // everything went fine
     isInitialized = true;
 
-    m_initCamera(glm::vec3(0.f, 0.0f, 5.0f), 0.0f, 0.0f);
+    m_initCamera(glm::vec3(0.5f, 0.5f, 2.0f), 0.0f, 0.0f);
     
     // m_loadSceneData();
 }
