@@ -8,7 +8,7 @@
 
 taskPayloadSharedEXT TaskPayload taskPayload;
 
-shared uint values[5][5][5]; // 125 intermediate values for the 5x5x5 corners of 4x4x4 cubes
+shared uint values[BLOCK_PLUS_1][BLOCK_PLUS_1][BLOCK_PLUS_1]; // intermediate values for the (n+1)x(n+1)x(n+1) corners of nxnxn cubes (n is either 4 or 8)
 
 layout(local_size_x = 32) in;
 void main()
@@ -16,30 +16,48 @@ void main()
 	uint thread_id = gl_LocalInvocationID.x;
 	uint workgroup_id = gl_WorkGroupID.x;
 
-	// Convert linear meshlet_id into x, y and z coordinates. We process a 4x4x4 volume of cubes per task shader invocation. For that we need to evaluate 5x5x5 field function values.
-	uint mi_x = 4 * ((workgroup_id >> (0*(SHIFT-2))) & (GRID_SIZE/4 - 1));
-	uint mi_y = 4 * ((workgroup_id >> (1*(SHIFT-2))) & (GRID_SIZE/4 - 1));
-	uint mi_z = 4 * ((workgroup_id >> (2*(SHIFT-2))));
+	// Convert linear workgroud id (or meshlet id) into absolute x, y and z coordinates. 
+    uint blocks_x = (GRID_X + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    uint blocks_y = (GRID_Y + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    uint blocks_z = (GRID_Z + BLOCK_SIZE - 1) / BLOCK_SIZE;
 
-	// 125 values are needed, so this loops 4 times, 3 lanes get wasted on last iteration
-	for (uint i = thread_id; i < 5 * 5 * 5; i += 32)
+    uint block_id_z = workgroup_id / (blocks_x * blocks_y);
+    uint remaining = workgroup_id % (blocks_x * blocks_y);
+    uint block_id_y = remaining / blocks_x;
+    uint block_id_x = remaining % blocks_x;
+
+    uint mi_x = block_id_x * BLOCK_SIZE;
+    uint mi_y = block_id_y * BLOCK_SIZE;
+    uint mi_z = block_id_z * BLOCK_SIZE;
+
+	// Evaluate the corner values for blocks
+	for (uint i = thread_id; i < BLOCK_PLUS_1 * BLOCK_PLUS_1 * BLOCK_PLUS_1; i += 32)
 	{
-		uint t = (205 * i) >> 10; // Fast i / 5, works for values < 1024. (205/1024 = 0.2001953125 ~ 1/5)
-		uint x = i - 5 * t;       // Fast i % 5
-		uint z = (205 * t) >> 10; // same trick but t / 5
-		uint y = t - 5 * z; // same trick but t % 5
+        uint x = i % BLOCK_PLUS_1;
+        uint y = (i / BLOCK_PLUS_1) % BLOCK_PLUS_1;
+        uint z = i / (BLOCK_PLUS_1 * BLOCK_PLUS_1);
 
-		vec3 pos = vec3(mi_x + x, mi_y + y, mi_z + z) * STEP_SIZE;
-		values[z][y][x] = (field(pos) >= 0.0f)? 1 : 0;
+        // Skip out-of-bounds samples
+        if (mi_x + x >= GRID_X || mi_y + y >= GRID_Y || mi_z + z >= GRID_Z) 
+		{
+            values[z][y][x] = 0;  // Initialize to avoid garbage (not fetched regardless)
+            continue;
+        }
+
+		vec3 pos = vec3(mi_x + x, mi_y + y, mi_z + z) / vec3(GRID_X, GRID_Y, GRID_Z);
+		values[z][y][x] = (field(pos) >= 0.0f) ? 1 : 0;
 	}
 
 	// Two loops, all lanes used
 	uint count = 0;
-	for (uint i = thread_id; i < 64; i += 32)
+	for (uint i = thread_id; i < BLOCK_VOLUME; i += 32)
 	{
-		uint x = i & 0x3;
-		uint y = (i >> 2) & 0x3;
-		uint z = i >> 4;
+        uint x = i % BLOCK_SIZE;
+        uint y = (i / BLOCK_SIZE) % BLOCK_SIZE;
+        uint z = i / (BLOCK_SIZE * BLOCK_SIZE);
+
+        // Skip voxels outside the grid
+        if (mi_x + x >= GRID_X || mi_y + y >= GRID_Y || mi_z + z >= GRID_Z) continue;
 
 		// Collect the sign bits for the cube corners. If all are zeros or all ones we're either fully inside or outside
 		// the surface, so no triangles will be generated. In all other cases, the isosurface cuts through the cube somewhere.
@@ -60,8 +78,8 @@ void main()
 
 		if (accept)
 		{
-			// Output a linear meshlet ID for the mesh shader
-			uint meshlet_id = ((((mi_z + z) << SHIFT) + mi_y + y) << SHIFT) + mi_x + x;
+			// Output a unique meshlet ID for the mesh shader to decode (simply flattening the voxel index in (x,y,z) to a single float which can be easily converted back to voxel index)
+			uint meshlet_id = (mi_z + z) * GRID_Y * GRID_X + (mi_y + y) * GRID_X + (mi_x + x);
 			taskPayload.meshlets[count + payloadIndex].MeshletID = meshlet_id;
 		}
 

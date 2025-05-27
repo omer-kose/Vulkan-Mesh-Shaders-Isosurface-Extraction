@@ -10,6 +10,12 @@ VkPipelineLayout MarchingCubesPass::PipelineLayout = VK_NULL_HANDLE;
 VkDescriptorSet MarchingCubesPass::MCDescriptorSet = VK_NULL_HANDLE;
 AllocatedBuffer MarchingCubesPass::MCLookupTableBuffer = {};
 
+template<typename T>
+T ceilDiv(T x, T y)
+{
+    return (x + y - 1) / y;
+}
+
 void MarchingCubesPass::Init(VulkanEngine* engine)
 {
     // Init the resources
@@ -93,7 +99,7 @@ void MarchingCubesPass::Execute(VulkanEngine* engine, VkCommandBuffer& cmd)
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, PipelineLayout, 0, 1, &sceneDescriptorSet, 0, nullptr);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, PipelineLayout, 1, 1, &MCDescriptorSet, 0, nullptr);
 
-    vkCmdDrawMeshTasksEXT(cmd, (64 / 4) * (64 / 4) * (64 / 4), 1, 1);
+    vkCmdDrawMeshTasksEXT(cmd, ceilDiv(128, 4) * ceilDiv(128, 4) * ceilDiv(128, 4), 1, 1);
 }
 
 void MarchingCubesPass::Update()

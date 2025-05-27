@@ -8,9 +8,15 @@ layout(set = 0, binding = 0) uniform SceneData
 	vec4 sunlightColor;
 } sceneData;
 
-const uint SHIFT = 6; // 128x128x128 cubes by default. (1 << 7) == 128
-#define GRID_SIZE (1 << SHIFT)
-#define STEP_SIZE (1.0f / float(GRID_SIZE))
+const uint GRID_X = 128;
+const uint GRID_Y = 128;
+const uint GRID_Z = 128;
+
+#define BLOCK_SIZE 4  // block size that each group processes (e.g., 4x4x4)
+
+// Derived Constants
+#define BLOCK_PLUS_1 (BLOCK_SIZE + 1)  // N+1 samples needed for N cubes
+#define BLOCK_VOLUME (BLOCK_SIZE * BLOCK_SIZE * BLOCK_SIZE)
 
 // Task shader to mesh shader I/O
 struct MeshletData

@@ -43,23 +43,23 @@ void main()
 	const uint thread_id  = gl_LocalInvocationID.x;
 	const uint meshlet_id = taskPayload.meshlets[gl_WorkGroupID.x].MeshletID;
 
-	// Convert linear meshlet_id into x, y and z coordinates
-	uint mi_x = (meshlet_id >> (0*SHIFT)) & (GRID_SIZE - 1);
-	uint mi_y = (meshlet_id >> (1*SHIFT)) & (GRID_SIZE - 1);
-	uint mi_z = (meshlet_id >> (2*SHIFT));
+	// Reconstruct (mi_x, mi_y, mi_z) from MeshletID
+    uint mi_x = meshlet_id % GRID_X;
+    uint mi_y = (meshlet_id / GRID_X) % GRID_Y;
+    uint mi_z = meshlet_id / (GRID_X * GRID_Y);
 
 	// Corner positions of the cube
-	vec3 corner_pos0 = vec3(mi_x, mi_y, mi_z) * STEP_SIZE;
-	vec3 corner_pos1 = corner_pos0 + STEP_SIZE;
+	vec3 corner_pos0 = vec3(mi_x, mi_y, mi_z) / vec3(GRID_X, GRID_Y, GRID_Z);
+	vec3 corner_pos1 = corner_pos0 + vec3(1.0f / GRID_X, 1.0f / GRID_Y, 1.0f / GRID_Z);
 
 	// First 8 lanes evaluate the field for each corner, the other 24 evaluate at offsetted positions in x, y and z so we can compute a normal at each corner from the field gradient
 	vec3 pos = vec3((thread_id & 1) != 0? corner_pos1.x : corner_pos0.x, (thread_id & 2) != 0? corner_pos1.y : corner_pos0.y, (thread_id & 4) != 0? corner_pos1.z : corner_pos0.z);
 
-	const float epsilon = (1.0f / 16.0f) * STEP_SIZE;
+	const vec3 epsilon = vec3(1.0f / 16.0f) / vec3(GRID_X, GRID_Y, GRID_Z);
 	uint off = thread_id / 8;
-	pos.x += (off == 1)? epsilon : 0.0f;
-	pos.y += (off == 2)? epsilon : 0.0f;
-	pos.z += (off == 3)? epsilon : 0.0f;
+	pos.x += (off == 1) ? epsilon.x : 0.0f;
+	pos.y += (off == 2) ? epsilon.y : 0.0f;
+	pos.z += (off == 3) ? epsilon.z : 0.0f;
 
 	// Evaluate the field function for all 32 lanes
 	float value = field(pos);
