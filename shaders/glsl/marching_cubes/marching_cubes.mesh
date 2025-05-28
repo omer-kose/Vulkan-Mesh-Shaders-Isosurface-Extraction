@@ -44,18 +44,20 @@ void main()
 	const uint meshletID = taskPayload.meshlets[gl_WorkGroupID.x].meshletID;
 
 	// Reconstruct (firstVoxelID_X, firstVoxelID_Y, firstVoxelID_Z) from MeshletID
-    uint firstVoxelID_X = meshletID % GRID_X;
-    uint firstVoxelID_Y = (meshletID / GRID_X) % GRID_Y;
-    uint firstVoxelID_Z = meshletID / (GRID_X * GRID_Y);
+    uint firstVoxelID_X = meshletID % mcSettings.gridSize.x;
+    uint firstVoxelID_Y = (meshletID / mcSettings.gridSize.x) % mcSettings.gridSize.y;
+    uint firstVoxelID_Z = meshletID / (mcSettings.gridSize.x * mcSettings.gridSize.y);
 
 	// Corner positions of the cube
-	vec3 cornerPos0 = vec3(firstVoxelID_X, firstVoxelID_Y, firstVoxelID_Z) / vec3(GRID_X, GRID_Y, GRID_Z);
-	vec3 cornerPos1 = cornerPos0 + vec3(1.0f / GRID_X, 1.0f / GRID_Y, 1.0f / GRID_Z);
+	vec3 cornerPos0 = vec3(firstVoxelID_X, firstVoxelID_Y, firstVoxelID_Z) / vec3(mcSettings.gridSize.x, mcSettings.gridSize.y, mcSettings.gridSize.z);
+	vec3 cornerPos1 = cornerPos0 + vec3(1.0f / mcSettings.gridSize.x, 1.0f / mcSettings.gridSize.y, 1.0f / mcSettings.gridSize.z);
 
 	// First 8 lanes evaluate the field for each corner, the other 24 evaluate at offsetted positions in x, y and z so we can compute a normal at each corner from the field gradient
+	// Each 8 thread, gets one position on the corner with the distribution below
 	vec3 pos = vec3((threadID & 1) != 0 ? cornerPos1.x : cornerPos0.x, (threadID & 2) != 0 ? cornerPos1.y : cornerPos0.y, (threadID & 4) != 0 ? cornerPos1.z : cornerPos0.z);
 
-	const vec3 epsilon = vec3(1.0f / 16.0f) / vec3(GRID_X, GRID_Y, GRID_Z);
+	const vec3 epsilon = vec3(1.0f / 16.0f) / vec3(mcSettings.gridSize.x, mcSettings.gridSize.y, mcSettings.gridSize.z);
+	// First 8: values on corners, Second 8: values on corners with an offset of epsilon on x, Third 8: values on corners with an offset of epsilon on y, Third 8: values on corners with an offset of epsilon on z
 	uint off = threadID / 8;
 	pos.x += (off == 1) ? epsilon.x : 0.0f;
 	pos.y += (off == 2) ? epsilon.y : 0.0f;

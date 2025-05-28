@@ -57,6 +57,9 @@ void VulkanEngine::init()
 
     m_initMaterialLayouts();
 
+    // MC Pass data depends on scene data so it must be initalized before initializing the pass
+    m_initSceneData();
+
     m_initPasses();
 
     m_initImgui();
@@ -65,12 +68,10 @@ void VulkanEngine::init()
 
     m_initGlobalSceneBuffer();
 
+    m_initCamera(glm::vec3(0.5f, 0.5f, 2.0f), 0.0f, 0.0f);   
+
     // everything went fine
     isInitialized = true;
-
-    m_initCamera(glm::vec3(0.5f, 0.5f, 2.0f), 0.0f, 0.0f);
-    
-    // m_loadSceneData();
 }
 
 void VulkanEngine::cleanup()
@@ -235,7 +236,6 @@ void VulkanEngine::drawMain(VkCommandBuffer cmd)
 void VulkanEngine::drawGeometry(VkCommandBuffer cmd)
 {
     // Go through all the graphics passes and execute them
-    //MeshShaderTriangleTestPass::Execute(this, cmd);
     MarchingCubesPass::Execute(this, cmd);
 
     // Drawing is done context can be cleared
@@ -261,7 +261,7 @@ void VulkanEngine::updateScene()
 
     sceneData.view = mainCamera.getViewMatrix();
     // camera projection
-    sceneData.proj = glm::perspectiveRH_ZO(glm::radians(70.f), (float)windowExtent.width / (float)windowExtent.height, 0.1f, 10000.f);
+    sceneData.proj = glm::perspectiveRH_ZO(glm::radians(90.f), (float)windowExtent.width / (float)windowExtent.height, 0.1f, 10000.f);
 
     // invert the Y direction on projection matrix so that we are more similar
     // to opengl and gltf axis
@@ -338,8 +338,6 @@ void VulkanEngine::run()
         ImGui::Text("frametime %f ms", stats.frameTime);
         ImGui::Text("geometry draw recording time %f ms", stats.geometryDrawRecordTime);
         ImGui::Text("update time %f ms", stats.sceneUpdateTime);
-        ImGui::Text("triangles %i", stats.triangleCount);
-        ImGui::Text("draws %i", stats.drawCallCount);
         ImGui::End();
 
         // Make ImGui calculate internal draw structures
@@ -395,7 +393,7 @@ AllocatedBuffer VulkanEngine::createBuffer(size_t allocSize, VkBufferUsageFlags 
     return newBuffer;
 }
 
-AllocatedBuffer VulkanEngine::createAndUploadGPUBuffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage, void* data, size_t srcOffset, size_t dstOffset)
+AllocatedBuffer VulkanEngine::createAndUploadGPUBuffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage, const void* data, size_t srcOffset, size_t dstOffset)
 {
     AllocatedBuffer newBuffer = createBuffer(allocSize, usage, memoryUsage);
 
@@ -925,7 +923,7 @@ void VulkanEngine::m_initDescriptors()
 void VulkanEngine::m_initPasses()
 {
     MeshShaderTriangleTestPass::Init(this);
-    MarchingCubesPass::Init(this);
+    MarchingCubesPass::Init(this, mcSettings);
 }
 
 void VulkanEngine::m_clearPassResources()
@@ -1101,7 +1099,7 @@ void VulkanEngine::m_initCamera(glm::vec3 position, float pitch, float yaw)
     mainCamera.yaw = yaw;
 }
 
-void VulkanEngine::m_loadSceneData()
+void VulkanEngine::m_initSceneData()
 {
-    return;
+    mcSettings.gridSize = glm::uvec3(128, 128, 128);
 }

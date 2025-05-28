@@ -114,7 +114,7 @@ public:
 	// Engine utilities (TODO: For the time being most of the stuff are directly open to outside but I will be slowly hiding them)
 	AllocatedBuffer createBuffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage);
 	// Allocates a buffer on local device memory and uploads the given data using a stage buffer
-	AllocatedBuffer createAndUploadGPUBuffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage, void* data, size_t srcOffset = 0, size_t dstOffset=0);
+	AllocatedBuffer createAndUploadGPUBuffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage, const void* data, size_t srcOffset = 0, size_t dstOffset=0);
 	void destroyBuffer(const AllocatedBuffer& buffer);
 
 	AllocatedImage createImage(VkExtent3D imageExtent, VkFormat format, VkImageUsageFlags usage, bool mipMapped = false);
@@ -220,6 +220,10 @@ public:
 	GPUSceneData sceneData;
 	// Draw Resource Descriptor Layouts
 	VkDescriptorSetLayout sceneDataDescriptorLayout;
+
+	// Marching Cubes Specific Settings (TODO: Implement the Samples idea and store everything related in the sample not the engine. But this will work for the time being)
+	MarchingCubesPass::MCSettings mcSettings;
+
 private:
 	// Vulkan Context
 	void m_initVulkan();
@@ -254,6 +258,6 @@ private:
 	void m_initCamera(glm::vec3 position, float pitch, float yaw);
 
 	// Loading Scene Data
-	void m_loadSceneData();
+	void m_initSceneData();
 
 };

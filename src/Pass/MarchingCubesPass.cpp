@@ -9,6 +9,8 @@ VkPipeline MarchingCubesPass::Pipeline = VK_NULL_HANDLE;
 VkPipelineLayout MarchingCubesPass::PipelineLayout = VK_NULL_HANDLE;
 VkDescriptorSet MarchingCubesPass::MCDescriptorSet = VK_NULL_HANDLE;
 AllocatedBuffer MarchingCubesPass::MCLookupTableBuffer = {};
+AllocatedBuffer MarchingCubesPass::MCSettingsBuffer = {};
+MarchingCubesPass::MCSettings MarchingCubesPass::Settings = {};
 
 template<typename T>
 T ceilDiv(T x, T y)
@@ -16,11 +18,15 @@ T ceilDiv(T x, T y)
     return (x + y - 1) / y;
 }
 
-void MarchingCubesPass::Init(VulkanEngine* engine)
+void MarchingCubesPass::Init(VulkanEngine* engine, const MCSettings& mcSettings_in)
 {
     // Init the resources
     size_t lookupTableSize = sizeof(MarchingCubesLookupTable);
 	MCLookupTableBuffer = engine->createAndUploadGPUBuffer(lookupTableSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_GPU_ONLY, (void*)MarchingCubesLookupTable);
+
+    size_t mcSettingsSize = sizeof(MCSettings);
+    Settings = mcSettings_in;
+    MCSettingsBuffer = engine->createAndUploadGPUBuffer(mcSettingsSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_GPU_ONLY, (void*)&Settings);
 
     // Init the pipeline
     // Load the shaders
@@ -45,11 +51,13 @@ void MarchingCubesPass::Init(VulkanEngine* engine)
     // Set descriptor sets
     DescriptorLayoutBuilder layoutBuilder;
     layoutBuilder.addBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
-    VkDescriptorSetLayout mcSetLayout = layoutBuilder.build(engine->device, VK_SHADER_STAGE_MESH_BIT_EXT);
+    layoutBuilder.addBinding(1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+    VkDescriptorSetLayout mcSetLayout = layoutBuilder.build(engine->device, VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT);
     // Allocate the descriptor set and update
     MCDescriptorSet = engine->globalDescriptorAllocator.allocate(engine->device, mcSetLayout);
     DescriptorWriter writer;
-    writer.writeBuffer(0, MCLookupTableBuffer.buffer, sizeof(MarchingCubesLookupTable), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+    writer.writeBuffer(0, MCLookupTableBuffer.buffer, lookupTableSize, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+    writer.writeBuffer(1, MCSettingsBuffer.buffer, mcSettingsSize, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
     writer.updateSet(engine->device, MCDescriptorSet);
 
     // 2 sets: 0 -> Scene Descriptor Set, 1 -> Pass Specific Descriptor Set
@@ -99,7 +107,7 @@ void MarchingCubesPass::Execute(VulkanEngine* engine, VkCommandBuffer& cmd)
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, PipelineLayout, 0, 1, &sceneDescriptorSet, 0, nullptr);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, PipelineLayout, 1, 1, &MCDescriptorSet, 0, nullptr);
 
-    vkCmdDrawMeshTasksEXT(cmd, ceilDiv(128, 4) * ceilDiv(128, 4) * ceilDiv(128, 4), 1, 1);
+    vkCmdDrawMeshTasksEXT(cmd, ceilDiv(Settings.gridSize.x, 4u) * ceilDiv(Settings.gridSize.y, 4u) * ceilDiv(Settings.gridSize.z, 4u), 1, 1);
 }
 
 void MarchingCubesPass::Update()
@@ -111,4 +119,5 @@ void MarchingCubesPass::ClearResources(VulkanEngine* engine)
     vkDestroyPipelineLayout(engine->device, PipelineLayout, nullptr);
     vkDestroyPipeline(engine->device, Pipeline, nullptr);
     engine->destroyBuffer(MCLookupTableBuffer);
+    engine->destroyBuffer(MCSettingsBuffer);
 }

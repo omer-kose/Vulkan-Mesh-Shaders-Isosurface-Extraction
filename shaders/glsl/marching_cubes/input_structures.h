@@ -1,4 +1,6 @@
-layout(set = 0, binding = 0) uniform SceneData
+#extension GL_EXT_scalar_block_layout : require
+
+layout(set = 0, binding = 0, scalar) uniform SceneData
 {
 	mat4 view;
 	mat4 proj;
@@ -8,15 +10,16 @@ layout(set = 0, binding = 0) uniform SceneData
 	vec4 sunlightColor;
 } sceneData;
 
-const uint GRID_X = 128;
-const uint GRID_Y = 128;
-const uint GRID_Z = 128;
-
 #define BLOCK_SIZE 4  // block size that each group processes (e.g., 4x4x4)
 
 // Derived Constants
 #define BLOCK_PLUS_1 (BLOCK_SIZE + 1)  // N+1 samples needed for N cubes
 #define BLOCK_VOLUME (BLOCK_SIZE * BLOCK_SIZE * BLOCK_SIZE)
+
+layout(set = 1, binding = 1, scalar) uniform MCSettings
+{
+	uvec3 gridSize;
+} mcSettings;
 
 // Task shader to mesh shader I/O
 struct MeshletData
