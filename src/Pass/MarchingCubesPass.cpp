@@ -22,11 +22,11 @@ void MarchingCubesPass::Init(VulkanEngine* engine, const MCSettings& mcSettings_
 {
     // Init the resources
     size_t lookupTableSize = sizeof(MarchingCubesLookupTable);
-	MCLookupTableBuffer = engine->createAndUploadGPUBuffer(lookupTableSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_GPU_ONLY, (void*)MarchingCubesLookupTable);
+	MCLookupTableBuffer = engine->createAndUploadGPUBuffer(lookupTableSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, (void*)MarchingCubesLookupTable);
 
     size_t mcSettingsSize = sizeof(MCSettings);
     Settings = mcSettings_in;
-    MCSettingsBuffer = engine->createAndUploadGPUBuffer(mcSettingsSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_GPU_ONLY, (void*)&Settings);
+    MCSettingsBuffer = engine->createAndUploadGPUBuffer(mcSettingsSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, (void*)&Settings);
 
     // Init the pipeline
     // Load the shaders

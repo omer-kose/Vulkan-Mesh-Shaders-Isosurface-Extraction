@@ -2,6 +2,8 @@
 
 #include <chrono>
 #include <thread>
+#include <fstream>
+
 
 #include <SDL.h>
 #include <SDL_vulkan.h>
@@ -393,9 +395,9 @@ AllocatedBuffer VulkanEngine::createBuffer(size_t allocSize, VkBufferUsageFlags 
     return newBuffer;
 }
 
-AllocatedBuffer VulkanEngine::createAndUploadGPUBuffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage, const void* data, size_t srcOffset, size_t dstOffset)
+AllocatedBuffer VulkanEngine::createAndUploadGPUBuffer(size_t allocSize, VkBufferUsageFlags usage, const void* data, size_t srcOffset, size_t dstOffset)
 {
-    AllocatedBuffer newBuffer = createBuffer(allocSize, usage, memoryUsage);
+    AllocatedBuffer newBuffer = createBuffer(allocSize, usage, VMA_MEMORY_USAGE_GPU_ONLY);
 
     AllocatedBuffer staging = createBuffer(allocSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
     void* pStaging = staging.allocation->GetMappedData();
@@ -1101,5 +1103,99 @@ void VulkanEngine::m_initCamera(glm::vec3 position, float pitch, float yaw)
 
 void VulkanEngine::m_initSceneData()
 {
-    mcSettings.gridSize = glm::uvec3(128, 128, 128);
+    /*
+         Load CT Head data. It is given in bytes. Format is 16-bit integers where two consecutive bytes make up one binary integer. 
+         The loading procedure is:
+         1- Read in the bytes
+         2- Dispatch a compute shader to convert: unsigned short -> float where 
+    */
+    // Open the file with the cursor at the end
+    std::ifstream file("../../assets/CThead/CThead.bytes", std::ios::ate | std::ios::binary);
+
+    if(!file.is_open())
+    {
+        fmt::println("Error when loading CThead data");
+        return;
+    }
+
+    // As the cursor is already at the end, we can directly asses the byte size of the file
+    size_t fileSize = (size_t)file.tellg();
+
+    // Store the shader code
+    std::vector<char> buffer(fileSize);
+
+    // Put the cursor at the beginning
+    file.seekg(0);
+
+    // Load the entire file into the buffer (read() reads the file byte by byte)
+    file.read(buffer.data(), fileSize);
+
+    // We are done with the file
+    file.close();
+
+    // Create the temp compute shader pipeline
+    struct VolumeDataConverterPushConstants
+    {
+        glm::uvec3 gridSize;
+        VkDeviceAddress sourceBufferAddress;
+        VkDeviceAddress voxelBufferAddress;
+    };
+
+    VolumeDataConverterPushConstants converterPC;
+    converterPC.gridSize = glm::uvec3(256, 256, 113); // hardcoded by data
+    size_t voxelBufferSize = converterPC.gridSize.x * converterPC.gridSize.y * converterPC.gridSize.z * sizeof(float);
+
+    // Load the source data into GPU and fetch the address
+    AllocatedBuffer sourceBuffer = createAndUploadGPUBuffer(fileSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, buffer.data());
+    VkBufferDeviceAddressInfo deviceAddressInfo{ .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO};
+    deviceAddressInfo.buffer = sourceBuffer.buffer;
+    converterPC.sourceBufferAddress = vkGetBufferDeviceAddress(device, &deviceAddressInfo);
+
+    // Create the voxel buffer that will be written on by the compute kernel and fetch the address
+    voxelBuffer = createBuffer(voxelBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+    deviceAddressInfo.buffer = voxelBuffer.buffer;
+    converterPC.voxelBufferAddress = vkGetBufferDeviceAddress(device, &deviceAddressInfo);
+
+    // Create the compute pipeline
+    VkPipelineLayoutCreateInfo converterPipelineLayoutInfo{ .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO, .pNext = nullptr };
+    VkPushConstantRange converterPCRange{ .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .offset = 0, .size = sizeof(VolumeDataConverterPushConstants) };
+    converterPipelineLayoutInfo.pushConstantRangeCount = 1;
+    converterPipelineLayoutInfo.pPushConstantRanges = &converterPCRange;
+
+    VkPipelineLayout converterPipelineLayout;
+    VK_CHECK(vkCreatePipelineLayout(device, &converterPipelineLayoutInfo, nullptr, &converterPipelineLayout));
+    VkShaderModule converterComputeShader;
+    if(!vkutil::loadShaderModule(device, "../../shaders/glsl/volume_data_convert/volume_data_convert_comp.spv", &converterComputeShader))
+    {
+        fmt::println("Volume Data Converter Compute Shader could not be loaded!");
+    }
+
+    VkPipelineShaderStageCreateInfo converterShaderStageInfo = vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_COMPUTE_BIT, converterComputeShader);
+    VkComputePipelineCreateInfo converterPipelineInfo = { .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO, .pNext = nullptr };
+    converterPipelineInfo.layout = converterPipelineLayout;
+    converterPipelineInfo.stage = converterShaderStageInfo;
+
+    VkPipeline converterPipeline;
+    VK_CHECK(vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &converterPipelineInfo, nullptr, &converterPipeline));
+
+    auto ceilDiv = [](unsigned int x, unsigned int y) { return (x + y - 1) / y; };
+    // Immediate dispatch the converter kernel
+    immediateSubmit([&](VkCommandBuffer cmd) {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, converterPipeline);
+        vkCmdPushConstants(cmd, converterPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(VolumeDataConverterPushConstants), &converterPC);
+
+        vkCmdDispatch(cmd, ceilDiv(converterPC.gridSize.x, 8u), ceilDiv(converterPC.gridSize.y, 8u), ceilDiv(converterPC.gridSize.z, 8u));
+    });
+
+    mcSettings.gridSize = converterPC.gridSize;
+
+    // Delete the temporary resources
+    vkDestroyPipelineLayout(device, converterPipelineLayout, nullptr);
+    vkDestroyPipeline(device, converterPipeline, nullptr);
+    vkDestroyShaderModule(device, converterComputeShader, nullptr);
+    destroyBuffer(sourceBuffer);
+    // voxel buffer persists until the end of the program
+    mainDeletionQueue.pushFunction([=](){
+        destroyBuffer(voxelBuffer);
+    });
 }
