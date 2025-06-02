@@ -238,7 +238,7 @@ void VulkanEngine::drawMain(VkCommandBuffer cmd)
 void VulkanEngine::drawGeometry(VkCommandBuffer cmd)
 {
     // Go through all the graphics passes and execute them
-    MarchingCubesPass::Execute(this, cmd);
+    MarchingCubesPassSDF::Execute(this, cmd);
 
     // Drawing is done context can be cleared
     mainDrawContext.opaqueGLTFSurfaces.clear();
@@ -417,6 +417,12 @@ AllocatedBuffer VulkanEngine::createAndUploadGPUBuffer(size_t allocSize, VkBuffe
     destroyBuffer(staging);
 
     return newBuffer;
+}
+
+VkDeviceAddress VulkanEngine::getBufferDeviceAddress(VkBuffer buffer)
+{
+    VkBufferDeviceAddressInfo deviceAddressInfo{ .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .buffer = buffer };
+    return vkGetBufferDeviceAddress(device, &deviceAddressInfo);
 }
 
 void VulkanEngine::destroyBuffer(const AllocatedBuffer& buffer)
@@ -925,13 +931,13 @@ void VulkanEngine::m_initDescriptors()
 void VulkanEngine::m_initPasses()
 {
     MeshShaderTriangleTestPass::Init(this);
-    MarchingCubesPass::Init(this, mcSettings);
+    MarchingCubesPassSDF::Init(this, mcSettings);
 }
 
 void VulkanEngine::m_clearPassResources()
 {
     MeshShaderTriangleTestPass::ClearResources(this);
-    MarchingCubesPass::ClearResources(this);
+    MarchingCubesPassSDF::ClearResources(this);
 }
 
 void VulkanEngine::m_initMaterialLayouts()
@@ -1147,14 +1153,11 @@ void VulkanEngine::m_initSceneData()
 
     // Load the source data into GPU and fetch the address
     AllocatedBuffer sourceBuffer = createAndUploadGPUBuffer(fileSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, buffer.data());
-    VkBufferDeviceAddressInfo deviceAddressInfo{ .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO};
-    deviceAddressInfo.buffer = sourceBuffer.buffer;
-    converterPC.sourceBufferAddress = vkGetBufferDeviceAddress(device, &deviceAddressInfo);
+    converterPC.sourceBufferAddress = getBufferDeviceAddress(sourceBuffer.buffer);
 
     // Create the voxel buffer that will be written on by the compute kernel and fetch the address
     voxelBuffer = createBuffer(voxelBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
-    deviceAddressInfo.buffer = voxelBuffer.buffer;
-    converterPC.voxelBufferAddress = vkGetBufferDeviceAddress(device, &deviceAddressInfo);
+    converterPC.voxelBufferAddress = getBufferDeviceAddress(voxelBuffer.buffer);
 
     // Create the compute pipeline
     VkPipelineLayoutCreateInfo converterPipelineLayoutInfo{ .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO, .pNext = nullptr };

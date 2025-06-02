@@ -1,16 +1,16 @@
-#include "MarchingCubesPass.h"
+#include "MarchingCubesPassSDF.h"
 
 #include <Core/vk_engine.h>
 #include <Core/vk_pipelines.h>
 #include <Core/vk_initializers.h>
 
 // Define the static members
-VkPipeline MarchingCubesPass::Pipeline = VK_NULL_HANDLE;
-VkPipelineLayout MarchingCubesPass::PipelineLayout = VK_NULL_HANDLE;
-VkDescriptorSet MarchingCubesPass::MCDescriptorSet = VK_NULL_HANDLE;
-AllocatedBuffer MarchingCubesPass::MCLookupTableBuffer = {};
-AllocatedBuffer MarchingCubesPass::MCSettingsBuffer = {};
-MarchingCubesPass::MCSettings MarchingCubesPass::Settings = {};
+VkPipeline MarchingCubesPassSDF::Pipeline = VK_NULL_HANDLE;
+VkPipelineLayout MarchingCubesPassSDF::PipelineLayout = VK_NULL_HANDLE;
+VkDescriptorSet MarchingCubesPassSDF::MCDescriptorSet = VK_NULL_HANDLE;
+AllocatedBuffer MarchingCubesPassSDF::MCLookupTableBuffer = {};
+AllocatedBuffer MarchingCubesPassSDF::MCSettingsBuffer = {};
+MarchingCubesPassSDF::MCSettings MarchingCubesPassSDF::Settings = {};
 
 template<typename T>
 T ceilDiv(T x, T y)
@@ -18,7 +18,7 @@ T ceilDiv(T x, T y)
     return (x + y - 1) / y;
 }
 
-void MarchingCubesPass::Init(VulkanEngine* engine, const MCSettings& mcSettings_in)
+void MarchingCubesPassSDF::Init(VulkanEngine* engine, const MCSettings& mcSettings_in)
 {
     // Init the resources
     size_t lookupTableSize = sizeof(MarchingCubesLookupTable);
@@ -31,19 +31,19 @@ void MarchingCubesPass::Init(VulkanEngine* engine, const MCSettings& mcSettings_
     // Init the pipeline
     // Load the shaders
     VkShaderModule taskShader;
-    if(!vkutil::loadShaderModule(engine->device, "../../shaders/glsl/marching_cubes/marching_cubes_task.spv", &taskShader))
+    if(!vkutil::loadShaderModule(engine->device, "../../shaders/glsl/marching_cubes_sdf/marching_cubes_task.spv", &taskShader))
     {
         fmt::println("Error when building marching cubes task shader");
     }
 
     VkShaderModule meshShader;
-    if(!vkutil::loadShaderModule(engine->device, "../../shaders/glsl/marching_cubes/marching_cubes_mesh.spv", &meshShader))
+    if(!vkutil::loadShaderModule(engine->device, "../../shaders/glsl/marching_cubes_sdf/marching_cubes_mesh.spv", &meshShader))
     {
         fmt::println("Error when building marching cubes mesh shader");
     }
 
     VkShaderModule fragmentShader;
-    if(!vkutil::loadShaderModule(engine->device, "../../shaders/glsl/marching_cubes/marching_cubes_frag.spv", &fragmentShader))
+    if(!vkutil::loadShaderModule(engine->device, "../../shaders/glsl/marching_cubes_sdf/marching_cubes_frag.spv", &fragmentShader))
     {
         fmt::println("Error when building marching cubes fragment shader");
     }
@@ -94,7 +94,7 @@ void MarchingCubesPass::Init(VulkanEngine* engine, const MCSettings& mcSettings_
     vkDestroyDescriptorSetLayout(engine->device, mcSetLayout, nullptr);
 }
 
-void MarchingCubesPass::Execute(VulkanEngine* engine, VkCommandBuffer& cmd)
+void MarchingCubesPassSDF::Execute(VulkanEngine* engine, VkCommandBuffer& cmd)
 {
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, Pipeline);
     // set dynamic state
@@ -108,11 +108,11 @@ void MarchingCubesPass::Execute(VulkanEngine* engine, VkCommandBuffer& cmd)
     vkCmdDrawMeshTasksEXT(cmd, ceilDiv(Settings.gridSize.x, 4u) * ceilDiv(Settings.gridSize.y, 4u) * ceilDiv(Settings.gridSize.z, 4u), 1, 1);
 }
 
-void MarchingCubesPass::Update()
+void MarchingCubesPassSDF::Update()
 {
 }
 
-void MarchingCubesPass::ClearResources(VulkanEngine* engine)
+void MarchingCubesPassSDF::ClearResources(VulkanEngine* engine)
 {
     vkDestroyPipelineLayout(engine->device, PipelineLayout, nullptr);
     vkDestroyPipeline(engine->device, Pipeline, nullptr);

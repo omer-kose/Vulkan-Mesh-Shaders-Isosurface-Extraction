@@ -24,6 +24,12 @@ layout(push_constant, scalar) uniform PushConstants
 void main()
 {
     uvec3 id = gl_GlobalInvocationID;
+    
+    if(any(greaterThanEqual(id, pushConstants.gridSize)))
+    {
+        return;
+    }
+
     uint index = id.x + pushConstants.gridSize.x * (id.y + pushConstants.gridSize.y * id.z);
 
     // Source voxel fetch

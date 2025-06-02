@@ -7,6 +7,7 @@
 #include <camera.h>
 
 #include <Pass/MeshShaderTriangleTestPass.h>
+#include <Pass/MarchingCubesPassSDF.h>
 #include <Pass/MarchingCubesPass.h>
 
 struct DeletionQueue
@@ -115,6 +116,7 @@ public:
 	AllocatedBuffer createBuffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage);
 	// Allocates a buffer on local device memory and uploads the given data using a stage buffer
 	AllocatedBuffer createAndUploadGPUBuffer(size_t allocSize, VkBufferUsageFlags usage, const void* data, size_t srcOffset = 0, size_t dstOffset=0);
+	VkDeviceAddress getBufferDeviceAddress(VkBuffer buffer);
 	void destroyBuffer(const AllocatedBuffer& buffer);
 
 	AllocatedImage createImage(VkExtent3D imageExtent, VkFormat format, VkImageUsageFlags usage, bool mipMapped = false);
@@ -222,7 +224,7 @@ public:
 	VkDescriptorSetLayout sceneDataDescriptorLayout;
 
 	// Marching Cubes Specific Settings (TODO: Implement the Samples idea and store everything related in the sample not the engine. But this will work for the time being)
-	MarchingCubesPass::MCSettings mcSettings;
+	MarchingCubesPassSDF::MCSettings mcSettings;
 	AllocatedBuffer voxelBuffer;
 
 private:

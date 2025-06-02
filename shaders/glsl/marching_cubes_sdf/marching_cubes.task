@@ -1,0 +1,91 @@
+#version 450
+#extension GL_GOOGLE_include_directive : enable
+#extension GL_EXT_mesh_shader : require
+#extension GL_KHR_shader_subgroup_ballot : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+#extension GL_EXT_scalar_block_layout : require
+
+#include "input_structures.h"
+
+taskPayloadSharedEXT TaskPayload taskPayload;
+
+shared uint values[BLOCK_PLUS_1][BLOCK_PLUS_1][BLOCK_PLUS_1]; // intermediate values for the (n+1)x(n+1)x(n+1) corners of nxnxn cubes (n is either 4 or 8)
+
+layout(local_size_x = 32) in;
+void main()
+{
+	uint threadID = gl_LocalInvocationID.x;
+	uint workgroupID = gl_WorkGroupID.x;
+
+	// Convert linear workgroud id (or meshlet id) into absolute x, y and z coordinates. 
+    uint numBlocksX = (mcSettings.gridSize.x + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    uint numBlocksY = (mcSettings.gridSize.y + BLOCK_SIZE - 1) / BLOCK_SIZE;
+
+    uint blockID_Z = workgroupID / (numBlocksX * numBlocksY);
+    uint remaining = workgroupID % (numBlocksX * numBlocksY);
+    uint blockID_Y = remaining / numBlocksX;
+    uint blockID_X = remaining % numBlocksX;
+
+	// index of the first voxel in the block
+    uint firstVoxelID_X = blockID_X * BLOCK_SIZE;
+    uint firstVoxelID_Y = blockID_Y * BLOCK_SIZE;
+    uint firstVoxelID_Z = blockID_Z * BLOCK_SIZE;
+
+	// Evaluate the corner values for blocks
+	for (uint i = threadID; i < BLOCK_PLUS_1 * BLOCK_PLUS_1 * BLOCK_PLUS_1; i += 32)
+	{
+        uint x = i % BLOCK_PLUS_1;
+        uint y = (i / BLOCK_PLUS_1) % BLOCK_PLUS_1;
+        uint z = i / (BLOCK_PLUS_1 * BLOCK_PLUS_1);
+
+        // Skip out-of-bounds samples
+        if (firstVoxelID_X + x >= mcSettings.gridSize.x || firstVoxelID_Y + y >= mcSettings.gridSize.y || firstVoxelID_Z + z >= mcSettings.gridSize.z) 
+		{
+            values[z][y][x] = 0;  // Initialize to avoid garbage (not fetched regardless)
+            continue;
+        }
+
+		vec3 pos = vec3(firstVoxelID_X + x, firstVoxelID_Y + y, firstVoxelID_Z + z) / vec3(mcSettings.gridSize.x, mcSettings.gridSize.y, mcSettings.gridSize.z);
+		values[z][y][x] = (field(pos) >= 0.0f) ? 1 : 0;
+	}
+
+	// Two loops, all lanes used
+	uint count = 0;
+	for (uint i = threadID; i < BLOCK_VOLUME; i += 32)
+	{
+        uint x = i % BLOCK_SIZE;
+        uint y = (i / BLOCK_SIZE) % BLOCK_SIZE;
+        uint z = i / (BLOCK_SIZE * BLOCK_SIZE);
+
+        // Skip voxels outside the grid
+        if (firstVoxelID_X + x >= mcSettings.gridSize.x || firstVoxelID_Y + y >= mcSettings.gridSize.y || firstVoxelID_Z + z >= mcSettings.gridSize.z) continue;
+
+		// Collect the sign bits for the cube corners. If all are zeros or all ones we're either fully inside or outside
+		// the surface, so no triangles will be generated. In all other cases, the isosurface cuts through the cube somewhere.
+		uint cubeIndex;
+		cubeIndex  = (values[z + 0][y + 0][x + 0] << 0);
+		cubeIndex |= (values[z + 0][y + 0][x + 1] << 1);
+		cubeIndex |= (values[z + 0][y + 1][x + 0] << 2);
+		cubeIndex |= (values[z + 0][y + 1][x + 1] << 3);
+		cubeIndex |= (values[z + 1][y + 0][x + 0] << 4);
+		cubeIndex |= (values[z + 1][y + 0][x + 1] << 5);
+		cubeIndex |= (values[z + 1][y + 1][x + 0] << 6);
+		cubeIndex |= (values[z + 1][y + 1][x + 1] << 7);
+
+		// See if our cube intersects the isosurface
+		bool accept = (cubeIndex != 0 && cubeIndex != 0xFF);
+
+		uint payloadIndex = subgroupExclusiveAdd(uint(accept));
+
+		if (accept)
+		{
+			// Output a unique meshlet ID for the mesh shader to decode (simply flattening the voxel index in (x,y,z) to a single float which can be easily converted back to voxel index)
+			uint meshledID = (firstVoxelID_Z + z) * mcSettings.gridSize.y * mcSettings.gridSize.x + (firstVoxelID_Y + y) * mcSettings.gridSize.x + (firstVoxelID_X + x);
+			taskPayload.meshlets[count + payloadIndex].meshletID = meshledID;
+		}
+
+		count += subgroupAdd(uint(accept));
+	}
+
+    EmitMeshTasksEXT(count, 1, 1);
+}
