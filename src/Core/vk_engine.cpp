@@ -238,7 +238,7 @@ void VulkanEngine::drawMain(VkCommandBuffer cmd)
 void VulkanEngine::drawGeometry(VkCommandBuffer cmd)
 {
     // Go through all the graphics passes and execute them
-    MarchingCubesPassSDF::Execute(this, cmd);
+    MarchingCubesPass::Execute(this, cmd);
 
     // Drawing is done context can be cleared
     mainDrawContext.opaqueGLTFSurfaces.clear();
@@ -274,6 +274,9 @@ void VulkanEngine::updateScene()
     sceneData.ambientColor = glm::vec4(0.1f);
     sceneData.sunlightColor = glm::vec4(1.0f);
     sceneData.sunlightDirection = glm::vec4(0.0f, -1.0f, -0.5f, 1.0f);
+
+    // Update the MC params (cheap operation but could be checked if there is any change)
+    MarchingCubesPass::UpdateMCSettings(mcSettings);
 
     auto end = std::chrono::system_clock::now();
     // Convert to microseconds (integer), then come back to miliseconds
@@ -336,10 +339,13 @@ void VulkanEngine::run()
         ImGui::NewFrame();
 
         ImGui::Begin("Stats");
-
         ImGui::Text("frametime %f ms", stats.frameTime);
         ImGui::Text("geometry draw recording time %f ms", stats.geometryDrawRecordTime);
         ImGui::Text("update time %f ms", stats.sceneUpdateTime);
+        ImGui::End();
+
+        ImGui::Begin("Marching Cubes Parameters");
+        ImGui::SliderFloat("Iso Value", &mcSettings.isoValue, 0.0f, 1.0f);
         ImGui::End();
 
         // Make ImGui calculate internal draw structures
@@ -930,14 +936,12 @@ void VulkanEngine::m_initDescriptors()
 
 void VulkanEngine::m_initPasses()
 {
-    MeshShaderTriangleTestPass::Init(this);
-    MarchingCubesPassSDF::Init(this, mcSettings);
+    MarchingCubesPass::Init(this, getBufferDeviceAddress(voxelBuffer.buffer));
 }
 
 void VulkanEngine::m_clearPassResources()
 {
-    MeshShaderTriangleTestPass::ClearResources(this);
-    MarchingCubesPassSDF::ClearResources(this);
+    MarchingCubesPass::ClearResources(this);
 }
 
 void VulkanEngine::m_initMaterialLayouts()
@@ -1191,6 +1195,7 @@ void VulkanEngine::m_initSceneData()
     });
 
     mcSettings.gridSize = converterPC.gridSize;
+    mcSettings.isoValue = 0.5f;
 
     // Delete the temporary resources
     vkDestroyPipelineLayout(device, converterPipelineLayout, nullptr);

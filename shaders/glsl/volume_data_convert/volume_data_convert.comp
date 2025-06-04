@@ -21,6 +21,15 @@ layout(push_constant, scalar) uniform PushConstants
     VoxelBuffer voxelBuffer;
 } pushConstants;
 
+// For testing purposes:
+float field(vec3 pos)
+{
+	// Unit sphere centered in [0,1] grid
+	vec3 center = vec3(0.5);
+	float radius = 0.25;
+	return length(pos - center) - radius;
+}
+
 void main()
 {
     uvec3 id = gl_GlobalInvocationID;

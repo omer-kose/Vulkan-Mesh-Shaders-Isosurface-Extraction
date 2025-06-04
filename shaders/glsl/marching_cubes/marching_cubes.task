@@ -18,8 +18,8 @@ void main()
 	uint workgroupID = gl_WorkGroupID.x;
 
 	// Convert linear workgroud id (or meshlet id) into absolute x, y and z coordinates. 
-    uint numBlocksX = (mcSettings.gridSize.x + BLOCK_SIZE - 1) / BLOCK_SIZE;
-    uint numBlocksY = (mcSettings.gridSize.y + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    uint numBlocksX = (pushConstants.mcSettings.gridSize.x + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    uint numBlocksY = (pushConstants.mcSettings.gridSize.y + BLOCK_SIZE - 1) / BLOCK_SIZE;
 
     uint blockID_Z = workgroupID / (numBlocksX * numBlocksY);
     uint remaining = workgroupID % (numBlocksX * numBlocksY);
@@ -38,15 +38,17 @@ void main()
         uint y = (i / BLOCK_PLUS_1) % BLOCK_PLUS_1;
         uint z = i / (BLOCK_PLUS_1 * BLOCK_PLUS_1);
 
+		uvec3 voxelID = uvec3(firstVoxelID_X + x, firstVoxelID_Y + y, firstVoxelID_Z + z);
+
         // Skip out-of-bounds samples
-        if (firstVoxelID_X + x >= mcSettings.gridSize.x || firstVoxelID_Y + y >= mcSettings.gridSize.y || firstVoxelID_Z + z >= mcSettings.gridSize.z) 
+		if(any(greaterThanEqual(voxelID, pushConstants.mcSettings.gridSize)))
 		{
             values[z][y][x] = 0;  // Initialize to avoid garbage (not fetched regardless)
             continue;
         }
 
-		vec3 pos = vec3(firstVoxelID_X + x, firstVoxelID_Y + y, firstVoxelID_Z + z) / vec3(mcSettings.gridSize.x, mcSettings.gridSize.y, mcSettings.gridSize.z);
-		values[z][y][x] = (field(pos) >= 0.0f) ? 1 : 0;
+		float value = voxelValue(voxelID);
+		values[z][y][x] = (value >= pushConstants.mcSettings.isoValue) ? 1 : 0;
 	}
 
 	// Two loops, all lanes used
@@ -57,8 +59,10 @@ void main()
         uint y = (i / BLOCK_SIZE) % BLOCK_SIZE;
         uint z = i / (BLOCK_SIZE * BLOCK_SIZE);
 
+		uvec3 voxelID = uvec3(firstVoxelID_X + x, firstVoxelID_Y + y, firstVoxelID_Z + z);
+
         // Skip voxels outside the grid
-        if (firstVoxelID_X + x >= mcSettings.gridSize.x || firstVoxelID_Y + y >= mcSettings.gridSize.y || firstVoxelID_Z + z >= mcSettings.gridSize.z) continue;
+		if(any(greaterThanEqual(voxelID, pushConstants.mcSettings.gridSize))) continue;
 
 		// Collect the sign bits for the cube corners. If all are zeros or all ones we're either fully inside or outside
 		// the surface, so no triangles will be generated. In all other cases, the isosurface cuts through the cube somewhere.
@@ -80,8 +84,8 @@ void main()
 		if (accept)
 		{
 			// Output a unique meshlet ID for the mesh shader to decode (simply flattening the voxel index in (x,y,z) to a single float which can be easily converted back to voxel index)
-			uint meshledID = (firstVoxelID_Z + z) * mcSettings.gridSize.y * mcSettings.gridSize.x + (firstVoxelID_Y + y) * mcSettings.gridSize.x + (firstVoxelID_X + x);
-			taskPayload.meshlets[count + payloadIndex].meshletID = meshledID;
+			uint meshletID = (firstVoxelID_Z + z) * pushConstants.mcSettings.gridSize.y * pushConstants.mcSettings.gridSize.x + (firstVoxelID_Y + y) * pushConstants.mcSettings.gridSize.x + (firstVoxelID_X + x);
+			taskPayload.meshlets[count + payloadIndex].meshletID = meshletID;
 		}
 
 		count += subgroupAdd(uint(accept));

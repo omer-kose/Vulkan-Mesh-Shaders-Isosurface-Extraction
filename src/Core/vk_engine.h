@@ -224,7 +224,7 @@ public:
 	VkDescriptorSetLayout sceneDataDescriptorLayout;
 
 	// Marching Cubes Specific Settings (TODO: Implement the Samples idea and store everything related in the sample not the engine. But this will work for the time being)
-	MarchingCubesPassSDF::MCSettings mcSettings;
+	MarchingCubesPass::MCSettings mcSettings; // Keep track of settings on the engine (actually on the sample) side to be able to modify it via GUI and update once before the render
 	AllocatedBuffer voxelBuffer;
 
 private:

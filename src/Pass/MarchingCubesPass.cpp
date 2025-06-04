@@ -9,8 +9,7 @@ VkPipeline MarchingCubesPass::Pipeline = VK_NULL_HANDLE;
 VkPipelineLayout MarchingCubesPass::PipelineLayout = VK_NULL_HANDLE;
 VkDescriptorSet MarchingCubesPass::MCDescriptorSet = VK_NULL_HANDLE;
 AllocatedBuffer MarchingCubesPass::MCLookupTableBuffer = {};
-AllocatedBuffer MarchingCubesPass::MCSettingsBuffer = {};
-MarchingCubesPass::MCSettings MarchingCubesPass::Settings = {};
+MarchingCubesPass::MCPushConstant MarchingCubesPass::PushConstants = {};
 
 template<typename T>
 T ceilDiv(T x, T y)
@@ -18,15 +17,11 @@ T ceilDiv(T x, T y)
     return (x + y - 1) / y;
 }
 
-void MarchingCubesPass::Init(VulkanEngine* engine, const MCSettings& mcSettings_in)
+void MarchingCubesPass::Init(VulkanEngine* engine, const VkDeviceAddress& voxelBufferDeviceAddress)
 {
     // Init the resources
     size_t lookupTableSize = sizeof(MarchingCubesLookupTable);
 	MCLookupTableBuffer = engine->createAndUploadGPUBuffer(lookupTableSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, (void*)MarchingCubesLookupTable);
-
-    size_t mcSettingsSize = sizeof(MCSettings);
-    Settings = mcSettings_in;
-    MCSettingsBuffer = engine->createAndUploadGPUBuffer(mcSettingsSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, (void*)&Settings);
 
     // Init the pipeline
     // Load the shaders
@@ -48,22 +43,26 @@ void MarchingCubesPass::Init(VulkanEngine* engine, const MCSettings& mcSettings_
         fmt::println("Error when building marching cubes fragment shader");
     }
 
+    // Push Constant (MC Settings are dynamic and updated via UpdateMCSettings function if needed (needs to be updated at least once of course))
+    PushConstants.voxelBufferDeviceAddress = voxelBufferDeviceAddress; // assigned once as the address does not change
+    VkPushConstantRange pcRange{ .stageFlags = VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT, .offset = 0, .size = sizeof(MCPushConstant) };
+
     // Set descriptor sets
     DescriptorLayoutBuilder layoutBuilder;
-    layoutBuilder.addBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
-    layoutBuilder.addBinding(1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
-    VkDescriptorSetLayout mcSetLayout = layoutBuilder.build(engine->device, VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT);
+    layoutBuilder.addBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER); // MC Table (only used in the Mesh Shader)
+    VkDescriptorSetLayout mcSetLayout = layoutBuilder.build(engine->device, VK_SHADER_STAGE_MESH_BIT_EXT);
     // Allocate the descriptor set and update
     MCDescriptorSet = engine->globalDescriptorAllocator.allocate(engine->device, mcSetLayout);
     DescriptorWriter writer;
     writer.writeBuffer(0, MCLookupTableBuffer.buffer, lookupTableSize, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
-    writer.writeBuffer(1, MCSettingsBuffer.buffer, mcSettingsSize, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
     writer.updateSet(engine->device, MCDescriptorSet);
 
     // 2 sets: 0 -> Scene Descriptor Set, 1 -> Pass Specific Descriptor Set
     VkDescriptorSetLayout layouts[] = { engine->getSceneDescriptorLayout(), mcSetLayout };
 
     VkPipelineLayoutCreateInfo pipelineLayoutInfo = vkinit::pipeline_layout_create_info();
+    pipelineLayoutInfo.pushConstantRangeCount = 1;
+    pipelineLayoutInfo.pPushConstantRanges = &pcRange;
     pipelineLayoutInfo.setLayoutCount = 2;
     pipelineLayoutInfo.pSetLayouts = layouts;
 
@@ -100,16 +99,19 @@ void MarchingCubesPass::Execute(VulkanEngine* engine, VkCommandBuffer& cmd)
     // set dynamic state
     engine->setViewport(cmd);
     engine->setScissor(cmd);
+    // push constants
+    vkCmdPushConstants(cmd, PipelineLayout, VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT, 0, sizeof(MCPushConstant), &PushConstants);
     // bind descriptors
     VkDescriptorSet sceneDescriptorSet = engine->getSceneBufferDescriptorSet();
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, PipelineLayout, 0, 1, &sceneDescriptorSet, 0, nullptr);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, PipelineLayout, 1, 1, &MCDescriptorSet, 0, nullptr);
 
-    vkCmdDrawMeshTasksEXT(cmd, ceilDiv(Settings.gridSize.x, 4u) * ceilDiv(Settings.gridSize.y, 4u) * ceilDiv(Settings.gridSize.z, 4u), 1, 1);
+    vkCmdDrawMeshTasksEXT(cmd, ceilDiv(PushConstants.mcSettings.gridSize.x, 4u) * ceilDiv(PushConstants.mcSettings.gridSize.y, 4u) * ceilDiv(PushConstants.mcSettings.gridSize.z, 4u), 1, 1);
 }
 
-void MarchingCubesPass::Update()
+void MarchingCubesPass::UpdateMCSettings(const MCSettings& mcSettings)
 {
+    PushConstants.mcSettings = mcSettings;
 }
 
 void MarchingCubesPass::ClearResources(VulkanEngine* engine)
@@ -117,5 +119,4 @@ void MarchingCubesPass::ClearResources(VulkanEngine* engine)
     vkDestroyPipelineLayout(engine->device, PipelineLayout, nullptr);
     vkDestroyPipeline(engine->device, Pipeline, nullptr);
     engine->destroyBuffer(MCLookupTableBuffer);
-    engine->destroyBuffer(MCSettingsBuffer);
 }

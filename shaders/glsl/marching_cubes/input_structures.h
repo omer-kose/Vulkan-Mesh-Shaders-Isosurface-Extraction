@@ -1,4 +1,5 @@
 #extension GL_EXT_scalar_block_layout : require
+#extension GL_EXT_buffer_reference : require
 
 layout(set = 0, binding = 0, scalar) uniform SceneData
 {
@@ -16,10 +17,23 @@ layout(set = 0, binding = 0, scalar) uniform SceneData
 #define BLOCK_PLUS_1 (BLOCK_SIZE + 1)  // N+1 samples needed for N cubes
 #define BLOCK_VOLUME (BLOCK_SIZE * BLOCK_SIZE * BLOCK_SIZE)
 
-layout(set = 1, binding = 1, scalar) uniform MCSettings
+// MC Settings that are sent to the gpu with the Push Constant
+struct MCSettings
 {
-	uvec3 gridSize;
-} mcSettings;
+	uvec3 gridSize; // Either determined by the input data or the user if a custom SDF is used (such as a noise function)
+	float isoValue;
+};
+
+layout(buffer_reference, scalar) readonly buffer VoxelBuffer
+{
+	float voxels[];
+};
+
+layout(push_constant, scalar) uniform PushConstants
+{
+	MCSettings mcSettings;
+	VoxelBuffer voxelBuffer;
+} pushConstants;
 
 // Task shader to mesh shader I/O
 struct MeshletData
@@ -39,4 +53,17 @@ float field(vec3 pos)
 	vec3 center = vec3(0.5);
 	float radius = 0.25;
 	return length(pos - center) - radius;
+}
+
+/*
+	Given 3D voxel idx in indices (within bounds, [0, gridSize-1]), fetches the value from the voxel buffer.
+
+	Note that, voxel values actually represent values at the corners not per-voxel center value in the context of Marching Cubes. In Marching Cubes, each corner actually has a SDF value. So, per voxel there are 8 values
+
+	For example, voxels[0] is the value of voxel 0's 0'th corner's value. voxels[1] lies at one right (I store the values in z-y-x order) and so on. In other words, a voxel i's value actually means
+	the values lies in its first corner. 
+*/
+float voxelValue(uvec3 idx)
+{
+	return pushConstants.voxelBuffer.voxels[idx.x + pushConstants.mcSettings.gridSize.x * (idx.y + pushConstants.mcSettings.gridSize.y * idx.z)];
 }

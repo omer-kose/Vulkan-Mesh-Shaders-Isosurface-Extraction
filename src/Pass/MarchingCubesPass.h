@@ -11,14 +11,23 @@ struct RenderObject;
 class MarchingCubesPass
 {
 public:
+	// MC Settings that are sent to the gpu with the Push Constants
 	struct MCSettings
 	{
 		glm::uvec3 gridSize; // Either determined by the input data or the user if a custom SDF is used (such as a noise function)
+		float isoValue;
 	};
+	struct MCPushConstant
+	{
+		MCSettings mcSettings; // This is directly controlled by user. Pass only uses the already written values does not writes onto it. Updating the settings is done via UpdateMCSettings function
+		// Static data
+		VkDeviceAddress voxelBufferDeviceAddress;
+	};
+
 public:
-	static void Init(VulkanEngine* engine, const MCSettings& mcSettings_in);
+	static void Init(VulkanEngine* engine, const VkDeviceAddress& voxelBufferDeviceAddress);
 	static void Execute(VulkanEngine* engine, VkCommandBuffer& cmd);
-	static void Update();
+	static void UpdateMCSettings(const MCSettings& mcSettings); // Updates the mcSettings in the Push Constants
 	static void ClearResources(VulkanEngine* engine);
 private:
 	static VkPipeline Pipeline;
@@ -26,7 +35,5 @@ private:
 	static VkDescriptorSet MCDescriptorSet; // set=1
 	// Resources
 	static AllocatedBuffer MCLookupTableBuffer; // set=1 binding=0 uniform buffer
-	static AllocatedBuffer MCSettingsBuffer; // set=1 binding=1 uniform buffer 
-	// Misc.
-	static MCSettings Settings; // to keep track of settings + utility (like gridSize is used while dispatching)
+	static MCPushConstant PushConstants; // MC Settings are kept track of via PushConstants. Engine can modify this via Update functions
 };
