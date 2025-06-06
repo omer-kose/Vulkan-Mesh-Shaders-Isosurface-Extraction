@@ -1,42 +1,60 @@
 #include "camera.h"
 #include <glm/gtx/transform.hpp>
-#include <glm/gtx/quaternion.hpp>
+
+Camera::Camera()
+    :
+    position(glm::vec3(0.0f, 0.0f, 0.0f)),
+    orientation(glm::quat(1.0f, 0.0f, 0.0f, 0.0f)),
+    speed(0.0005f),
+    mouseSensitivity(0.005f),
+    velocity(glm::vec3(0.0f, 0.0f, 0.0f))
+
+{}
+
+Camera::Camera(const glm::vec3& position_in, float pitch, float yaw)
+    :
+    position(position_in),
+    speed(0.05f),
+    mouseSensitivity(0.002f),
+    velocity(glm::vec3(0.0f, 0.0f, 0.0f))
+{
+    glm::quat yawRot = glm::angleAxis(yaw, glm::vec3(0.0f, 1.0f, 0.0f));
+    glm::quat pitchRot = glm::angleAxis(pitch, glm::vec3(1.0f, 0.0f, 0.0f));
+    orientation = yawRot * glm::quat(1.0f, 0.0f, 0.0f, 0.0f) * pitchRot;
+}
 
 glm::mat4 Camera::getViewMatrix()
 {
     glm::mat4 invTranslation = glm::translate(glm::mat4(1.0f), -position);
-    glm::mat4 invRot = glm::transpose(getRotationMatrix());
+    glm::mat4 invRot = glm::transpose(glm::toMat4(orientation));
     return invRot * invTranslation;
 }
 
 glm::mat4 Camera::getRotationMatrix()
 {
-    glm::quat pitchRotation = glm::angleAxis(pitch, glm::vec3(1.0f, 0.0f, 0.0f));
-    glm::quat yawRotation = glm::angleAxis(yaw, glm::vec3(0.0f, 1.0f, 0.0f));
-    return glm::toMat4(yawRotation) * glm::toMat4(pitchRotation);
+    return glm::toMat4(orientation);
 }
 
 void Camera::processSDLEvent(SDL_Event& e)
 {
-    // TODO: Camera movement stutters when consecutive opposite direction input is given
-    if(e.type == SDL_KEYDOWN) 
+    if(e.type == SDL_KEYDOWN)
     {
-        if(e.key.keysym.sym == SDLK_w) { velocity.z = -0.05; }
-        if(e.key.keysym.sym == SDLK_s) { velocity.z = 0.05; }
-        if(e.key.keysym.sym == SDLK_a) { velocity.x = -0.05; }
-        if(e.key.keysym.sym == SDLK_d) { velocity.x = 0.05; }
-        if(e.key.keysym.sym == SDLK_SPACE) { velocity.y = 0.05; }
-        if(e.key.keysym.sym == SDLK_LCTRL) { velocity.y = -0.05; }
+        if(e.key.keysym.sym == SDLK_w) { movement.forward = true; }
+        if(e.key.keysym.sym == SDLK_s) { movement.backward = true; }
+        if(e.key.keysym.sym == SDLK_a) { movement.left = true; }
+        if(e.key.keysym.sym == SDLK_d) { movement.right = true; }
+        if(e.key.keysym.sym == SDLK_SPACE) { movement.up = true; }
+        if(e.key.keysym.sym == SDLK_LCTRL) { movement.down = true; }
     }
 
-    if(e.type == SDL_KEYUP) 
+    if(e.type == SDL_KEYUP)
     {
-        if(e.key.keysym.sym == SDLK_w) { velocity.z = 0; }
-        if(e.key.keysym.sym == SDLK_s) { velocity.z = 0; }
-        if(e.key.keysym.sym == SDLK_a) { velocity.x = 0; }
-        if(e.key.keysym.sym == SDLK_d) { velocity.x = 0; }
-        if(e.key.keysym.sym == SDLK_SPACE) { velocity.y = 0; }
-        if(e.key.keysym.sym == SDLK_LCTRL) { velocity.y = 0; }
+        if(e.key.keysym.sym == SDLK_w) { movement.forward = false; }
+        if(e.key.keysym.sym == SDLK_s) { movement.backward = false; }
+        if(e.key.keysym.sym == SDLK_a) { movement.left = false; }
+        if(e.key.keysym.sym == SDLK_d) { movement.right = false; }
+        if(e.key.keysym.sym == SDLK_SPACE) { movement.up = false; }
+        if(e.key.keysym.sym == SDLK_LCTRL) { movement.down = false; }
     }
 
     if(e.type == SDL_MOUSEBUTTONDOWN && e.button.button == SDL_BUTTON_RIGHT)
@@ -49,13 +67,54 @@ void Camera::processSDLEvent(SDL_Event& e)
     }
     else if(e.type == SDL_MOUSEMOTION && rightMouseButtonDown)
     {
-        yaw -= (float)e.motion.xrel / 200.f;
-        pitch -= (float)e.motion.yrel / 200.f;
+        // Calculate rotation deltas
+        float yawDelta = -e.motion.xrel * mouseSensitivity;
+        float pitchDelta = -e.motion.yrel * mouseSensitivity;
+
+        // Create rotation quaternions
+        glm::quat yawRot = glm::angleAxis(yawDelta, glm::vec3(0.0f, 1.0f, 0.0f));
+        glm::quat pitchRot = glm::angleAxis(pitchDelta, glm::vec3(1.0f, 0.0f, 0.0f));
+
+        // Apply rotations (yaw is global up, pitch is local right)
+        orientation = orientation * yawRot;
+        orientation = orientation * pitchRot;
+        orientation = glm::normalize(orientation); // Prevent drift
     }
 }
 
 void Camera::update()
 {
-	glm::mat4 cameraRotation = getRotationMatrix();
-	position += glm::vec3(cameraRotation * glm::vec4(velocity, 0.0f));
+    // Calculate net velocity based on all active keys
+    glm::vec3 netVelocity(0.0f);
+    if(movement.forward) netVelocity.z -= speed;
+    if(movement.backward) netVelocity.z += speed;
+    if(movement.left) netVelocity.x -= speed;
+    if(movement.right) netVelocity.x += speed;
+    if(movement.up) netVelocity.y += speed;
+    if(movement.down) netVelocity.y -= speed;
+
+    float netSpeed = glm::length(netVelocity);
+
+    // Normalize if diagonal movement to maintain consistent speed
+    if(netSpeed > speed)
+    {
+        netVelocity = glm::normalize(netVelocity) * speed;
+    }
+
+    // possible override above branch but not really important
+    if(netSpeed > 0.0001f) // if there is a movement
+    {
+        // Apply movement relative to camera orientation
+        position += glm::vec3(glm::toMat4(orientation) * glm::vec4(netVelocity, 0.0f));
+    }
+}
+
+void Camera::setSpeed(float speed_in)
+{
+    speed = speed_in;
+}
+
+void Camera::setMouseSenstivity(float mouseSensitivity_in)
+{
+    mouseSensitivity = mouseSensitivity_in;
 }

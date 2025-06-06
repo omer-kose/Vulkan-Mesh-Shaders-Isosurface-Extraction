@@ -1105,10 +1105,7 @@ void VulkanEngine::m_initGlobalSceneBuffer()
 
 void VulkanEngine::m_initCamera(glm::vec3 position, float pitch, float yaw)
 {
-    mainCamera.velocity = glm::vec3(0.0f);
-    mainCamera.position = position;
-    mainCamera.pitch = pitch;
-    mainCamera.yaw = yaw;
+    mainCamera = Camera(position, pitch, yaw);
 }
 
 void VulkanEngine::m_initSceneData()
