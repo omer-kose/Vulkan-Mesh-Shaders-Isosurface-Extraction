@@ -94,7 +94,7 @@ void MarchingCubesPassSDF::Init(VulkanEngine* engine, const MCSettings& mcSettin
     vkDestroyDescriptorSetLayout(engine->device, mcSetLayout, nullptr);
 }
 
-void MarchingCubesPassSDF::Execute(VulkanEngine* engine, VkCommandBuffer& cmd)
+void MarchingCubesPassSDF::Execute(VulkanEngine* engine, VkCommandBuffer cmd)
 {
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, Pipeline);
     // set dynamic state

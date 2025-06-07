@@ -59,18 +59,15 @@ void VulkanEngine::init()
 
     m_initMaterialLayouts();
 
-    // MC Pass data depends on scene data so it must be initalized before initializing the pass
-    m_initSceneData();
-
     m_initPasses();
+    
+    m_initSceneInformation();
 
     m_initImgui();
 
     m_initDefaultData();
 
     m_initGlobalSceneBuffer();
-
-    m_initCamera(glm::vec3(0.5f, 0.5f, 2.0f), 0.0f, 0.0f);   
 
     // everything went fine
     isInitialized = true;
@@ -99,6 +96,9 @@ void VulkanEngine::cleanup()
         m_clearMaterialLayouts();
 
         m_clearPassResources();
+
+        // Free the active scene
+        activeScene.reset();
 
         mainDeletionQueue.flush();
 
@@ -258,26 +258,9 @@ void VulkanEngine::drawImgui(VkCommandBuffer cmd, VkImageView targetImageView)
 void VulkanEngine::updateScene()
 {
     auto start = std::chrono::system_clock::now();
-
-    mainCamera.update();
-
-    sceneData.view = mainCamera.getViewMatrix();
-    // camera projection
-    sceneData.proj = glm::perspectiveRH_ZO(glm::radians(90.f), (float)windowExtent.width / (float)windowExtent.height, 0.1f, 10000.f);
-
-    // invert the Y direction on projection matrix so that we are more similar
-    // to opengl and gltf axis
-    sceneData.proj[1][1] *= -1;
-    sceneData.viewproj = sceneData.proj * sceneData.view;
-
-    //some default lighting parameters
-    sceneData.ambientColor = glm::vec4(0.1f);
-    sceneData.sunlightColor = glm::vec4(1.0f);
-    sceneData.sunlightDirection = glm::vec4(0.0f, -1.0f, -0.5f, 1.0f);
-
-    // Update the MC params (cheap operation but could be checked if there is any change)
-    MarchingCubesPass::UpdateMCSettings(mcSettings);
-
+    
+    activeScene->update();
+    
     auto end = std::chrono::system_clock::now();
     // Convert to microseconds (integer), then come back to miliseconds
     auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
@@ -315,7 +298,7 @@ void VulkanEngine::run()
                 }
             }
 
-            mainCamera.processSDLEvent(e);
+            activeScene->processSDLEvents(e);
             // send SDL event to ImGui for processing
             ImGui_ImplSDL2_ProcessEvent(&e);
         }
@@ -344,9 +327,35 @@ void VulkanEngine::run()
         ImGui::Text("update time %f ms", stats.sceneUpdateTime);
         ImGui::End();
 
-        ImGui::Begin("Marching Cubes Parameters");
-        ImGui::SliderFloat("Iso Value", &mcSettings.isoValue, 0.0f, 1.0f);
-        ImGui::End();
+        // Scene Selection
+        if(ImGui::BeginCombo("Scene Selection", sceneNames[selectedSceneID].c_str()))
+        {
+            for(int i = 0; i < sceneNames.size(); i++)
+            {
+                const bool isSelected = (selectedSceneID == i);
+                if(ImGui::Selectable(sceneNames[i].c_str(), isSelected))
+                {
+                    if(selectedSceneID != i)
+                    {
+                        selectedSceneID = i;
+                        loadScene(selectedSceneID);
+                    }
+                }
+
+                // Set the initial focus when opening the combo
+                if(isSelected)
+                    ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+        // Scene Reload
+        if(ImGui::Button("Reload Scene"))
+        {
+            loadScene(selectedSceneID);
+        }
+
+        // Scene UI
+        activeScene->handleUI();
 
         // Make ImGui calculate internal draw structures
         ImGui::Render();
@@ -575,12 +584,12 @@ void VulkanEngine::updateSceneBuffer()
 {
     // Update the scene buffer
     GPUSceneData* pGpuSceneDataBuffer = (GPUSceneData*)gpuSceneDataBuffer[frameNumber % FRAME_OVERLAP].allocation->GetMappedData();
-    *pGpuSceneDataBuffer = sceneData;
+    *pGpuSceneDataBuffer = activeScene->getSceneData();
 }
 
 VkDescriptorSetLayout VulkanEngine::getSceneDescriptorLayout() const
 {
-    return sceneDataDescriptorLayout;
+    return sceneDescriptorLayout;
 }
 
 VkDescriptorSet VulkanEngine::getSceneBufferDescriptorSet() const
@@ -613,6 +622,11 @@ void VulkanEngine::setScissor(VkCommandBuffer cmd)
 const DrawContext* VulkanEngine::getDrawContext() const
 {
     return &mainDrawContext;
+}
+
+VkExtent2D VulkanEngine::getWindowExtent() const
+{
+    return windowExtent;
 }
 
 void VulkanEngine::m_initVulkan()
@@ -893,7 +907,7 @@ void VulkanEngine::m_initDescriptors()
     {
         DescriptorLayoutBuilder builder;
         builder.addBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
-        sceneDataDescriptorLayout = builder.build(device, VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_FRAGMENT_BIT);
+        sceneDescriptorLayout = builder.build(device, VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_FRAGMENT_BIT);
     }
 
     // Allocate a descriptor set for the draw image
@@ -911,7 +925,7 @@ void VulkanEngine::m_initDescriptors()
 
         vkDestroyDescriptorSetLayout(device, drawImageDescriptorSetLayout, nullptr);
         vkDestroyDescriptorSetLayout(device, displayTextureDescriptorSetLayout, nullptr);
-        vkDestroyDescriptorSetLayout(device, sceneDataDescriptorLayout, nullptr);
+        vkDestroyDescriptorSetLayout(device, sceneDescriptorLayout, nullptr);
     });
 
     // Init the per-frame descriptor allocators
@@ -936,7 +950,7 @@ void VulkanEngine::m_initDescriptors()
 
 void VulkanEngine::m_initPasses()
 {
-    MarchingCubesPass::Init(this, getBufferDeviceAddress(voxelBuffer.buffer));
+    MarchingCubesPass::Init(this);
 }
 
 void VulkanEngine::m_clearPassResources()
@@ -1096,111 +1110,31 @@ void VulkanEngine::m_initGlobalSceneBuffer()
         });
 
         // Create a descriptor set for the uniform data
-        sceneDescriptorSet[i] = globalDescriptorAllocator.allocate(device, sceneDataDescriptorLayout);
+        sceneDescriptorSet[i] = globalDescriptorAllocator.allocate(device, sceneDescriptorLayout);
         DescriptorWriter writer;
         writer.writeBuffer(0, gpuSceneDataBuffer[i].buffer, sizeof(GPUSceneData), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
         writer.updateSet(device, sceneDescriptorSet[i]);
     }
 }
 
-void VulkanEngine::m_initCamera(glm::vec3 position, float pitch, float yaw)
+void VulkanEngine::m_initSceneInformation()
 {
-    mainCamera = Camera(position, pitch, yaw);
+    // Harcoding the scene names. 
+    sceneNames = { "CThead" };
+    selectedSceneID = 0;
+    loadScene(selectedSceneID);
 }
 
-void VulkanEngine::m_initSceneData()
+void VulkanEngine::loadScene(uint32_t sceneID)
 {
-    /*
-         Load CT Head data. It is given in bytes. Format is 16-bit integers where two consecutive bytes make up one binary integer. 
-         The loading procedure is:
-         1- Read in the bytes
-         2- Dispatch a compute shader to convert: unsigned short -> float where 
-    */
-    // Open the file with the cursor at the end
-    std::ifstream file("../../assets/CThead/CThead.bytes", std::ios::ate | std::ios::binary);
-
-    if(!file.is_open())
+    switch(sceneID)
     {
-        fmt::println("Error when loading CThead data");
-        return;
+        case 0:
+            activeScene = std::make_unique<CTheadScene>();
+            activeScene->load(this);
+            break;
+        default:
+            fmt::println("No existing scene id is selected!");
+            break;
     }
-
-    // As the cursor is already at the end, we can directly asses the byte size of the file
-    size_t fileSize = (size_t)file.tellg();
-
-    // Store the shader code
-    std::vector<char> buffer(fileSize);
-
-    // Put the cursor at the beginning
-    file.seekg(0);
-
-    // Load the entire file into the buffer (read() reads the file byte by byte)
-    file.read(buffer.data(), fileSize);
-
-    // We are done with the file
-    file.close();
-
-    // Create the temp compute shader pipeline
-    struct VolumeDataConverterPushConstants
-    {
-        glm::uvec3 gridSize;
-        VkDeviceAddress sourceBufferAddress;
-        VkDeviceAddress voxelBufferAddress;
-    };
-
-    VolumeDataConverterPushConstants converterPC;
-    converterPC.gridSize = glm::uvec3(256, 256, 113); // hardcoded by data
-    size_t voxelBufferSize = converterPC.gridSize.x * converterPC.gridSize.y * converterPC.gridSize.z * sizeof(float);
-
-    // Load the source data into GPU and fetch the address
-    AllocatedBuffer sourceBuffer = createAndUploadGPUBuffer(fileSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, buffer.data());
-    converterPC.sourceBufferAddress = getBufferDeviceAddress(sourceBuffer.buffer);
-
-    // Create the voxel buffer that will be written on by the compute kernel and fetch the address
-    voxelBuffer = createBuffer(voxelBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
-    converterPC.voxelBufferAddress = getBufferDeviceAddress(voxelBuffer.buffer);
-
-    // Create the compute pipeline
-    VkPipelineLayoutCreateInfo converterPipelineLayoutInfo{ .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO, .pNext = nullptr };
-    VkPushConstantRange converterPCRange{ .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .offset = 0, .size = sizeof(VolumeDataConverterPushConstants) };
-    converterPipelineLayoutInfo.pushConstantRangeCount = 1;
-    converterPipelineLayoutInfo.pPushConstantRanges = &converterPCRange;
-
-    VkPipelineLayout converterPipelineLayout;
-    VK_CHECK(vkCreatePipelineLayout(device, &converterPipelineLayoutInfo, nullptr, &converterPipelineLayout));
-    VkShaderModule converterComputeShader;
-    if(!vkutil::loadShaderModule(device, "../../shaders/glsl/volume_data_convert/volume_data_convert_comp.spv", &converterComputeShader))
-    {
-        fmt::println("Volume Data Converter Compute Shader could not be loaded!");
-    }
-
-    VkPipelineShaderStageCreateInfo converterShaderStageInfo = vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_COMPUTE_BIT, converterComputeShader);
-    VkComputePipelineCreateInfo converterPipelineInfo = { .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO, .pNext = nullptr };
-    converterPipelineInfo.layout = converterPipelineLayout;
-    converterPipelineInfo.stage = converterShaderStageInfo;
-
-    VkPipeline converterPipeline;
-    VK_CHECK(vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &converterPipelineInfo, nullptr, &converterPipeline));
-
-    auto ceilDiv = [](unsigned int x, unsigned int y) { return (x + y - 1) / y; };
-    // Immediate dispatch the converter kernel
-    immediateSubmit([&](VkCommandBuffer cmd) {
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, converterPipeline);
-        vkCmdPushConstants(cmd, converterPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(VolumeDataConverterPushConstants), &converterPC);
-
-        vkCmdDispatch(cmd, ceilDiv(converterPC.gridSize.x, 8u), ceilDiv(converterPC.gridSize.y, 8u), ceilDiv(converterPC.gridSize.z, 8u));
-    });
-
-    mcSettings.gridSize = converterPC.gridSize;
-    mcSettings.isoValue = 0.5f;
-
-    // Delete the temporary resources
-    vkDestroyPipelineLayout(device, converterPipelineLayout, nullptr);
-    vkDestroyPipeline(device, converterPipeline, nullptr);
-    vkDestroyShaderModule(device, converterComputeShader, nullptr);
-    destroyBuffer(sourceBuffer);
-    // voxel buffer persists until the end of the program
-    mainDeletionQueue.pushFunction([=](){
-        destroyBuffer(voxelBuffer);
-    });
 }

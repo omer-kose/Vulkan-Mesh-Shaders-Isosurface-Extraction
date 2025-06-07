@@ -17,6 +17,12 @@ file(GLOB_RECURSE SRC_MATERIALS
 	"Materials/*.cpp"
 )
 
+file(GLOB_RECURSE SRC_SCENES
+	"Scenes/*.h"
+	"Scenes/*.hpp"
+	"Scenes/*.cpp"
+)
+
 # Add the rest of the source files in the src folder
 file(GLOB SRC 
 	"*.h"
@@ -25,10 +31,10 @@ file(GLOB SRC
 )
 
 # Create executable with all found sources
-add_executable(engine ${SRC} ${SRC_CORE} ${SRC_PASS} ${SRC_MATERIALS})
+add_executable(engine ${SRC} ${SRC_CORE} ${SRC_PASS} ${SRC_MATERIALS} ${SRC_SCENES})
 
 # Add filters for the solution
-source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SRC_CORE} ${SRC_PASS} ${SRC_MATERIALS}) 
+source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SRC_CORE} ${SRC_PASS} ${SRC_MATERIALS} ${SRC_SCENES}) 
 
 set_property(TARGET engine PROPERTY CXX_STANDARD 20)
 target_compile_definitions(engine PUBLIC GLM_FORCE_DEPTH_ZERO_TO_ONE VK_NO_PROTOTYPES)

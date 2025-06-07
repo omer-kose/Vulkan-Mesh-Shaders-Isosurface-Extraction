@@ -4,11 +4,11 @@
 #include <Core/vk_descriptors.h>
 #include <Core/vk_loader.h>
 
-#include <camera.h>
-
 #include <Pass/MeshShaderTriangleTestPass.h>
 #include <Pass/MarchingCubesPassSDF.h>
 #include <Pass/MarchingCubesPass.h>
+
+#include <Scenes/CTheadScene.h>
 
 struct DeletionQueue
 {
@@ -134,6 +134,8 @@ public:
 
 	const DrawContext* getDrawContext() const;
 
+	VkExtent2D getWindowExtent() const;
+
 public:
 	struct SDL_Window* window{ nullptr };
 
@@ -182,9 +184,6 @@ public:
 	// Main color attachment clear value 
 	VkClearValue colorAttachmentClearValue = { 0.0f, 0.0f, 0.0f, 1.0f };
 
-	// Camera
-	Camera mainCamera;
-
 	// Draw Image
 	AllocatedImage drawImage;
 	AllocatedImage depthImage;
@@ -199,8 +198,10 @@ public:
 	VkDescriptorSetLayout displayTextureDescriptorSetLayout;
 
 	// Per-frame Global Scene (uniform) Buffer and the descriptor set (Shared by the whole engine which uses scene data so it is persistent per-frame no need to reallocate) 
+	// All the scenes have the same common structure for the buffer so resource is stored in the engine not in the active scene
 	AllocatedBuffer gpuSceneDataBuffer[FRAME_OVERLAP];
 	VkDescriptorSet sceneDescriptorSet[FRAME_OVERLAP];
+	VkDescriptorSetLayout sceneDescriptorLayout;
 
 	// Default textures
 	AllocatedImage whiteImage;
@@ -218,14 +219,10 @@ public:
 	// Main Draw Context
 	DrawContext mainDrawContext;
 
-	// Draw Resources
-	GPUSceneData sceneData;
-	// Draw Resource Descriptor Layouts
-	VkDescriptorSetLayout sceneDataDescriptorLayout;
-
-	// Marching Cubes Specific Settings (TODO: Implement the Samples idea and store everything related in the sample not the engine. But this will work for the time being)
-	MarchingCubesPass::MCSettings mcSettings; // Keep track of settings on the engine (actually on the sample) side to be able to modify it via GUI and update once before the render
-	AllocatedBuffer voxelBuffer;
+	// Scene
+	std::unique_ptr<Scene> activeScene;
+	std::vector<std::string> sceneNames; // This is for selecting the scenes from UI. The names are hardcoded. 
+	uint32_t selectedSceneID; // Keep track of the current scene name to see if the scene is changed.
 
 private:
 	// Vulkan Context
@@ -257,10 +254,7 @@ private:
 	// Init Scene Buffer
 	void m_initGlobalSceneBuffer();
 
-	// Camera
-	void m_initCamera(glm::vec3 position, float pitch, float yaw);
-
-	// Loading Scene Data
-	void m_initSceneData();
-
+	// Scene
+	void m_initSceneInformation();
+	void loadScene(uint32_t sceneID);
 };
