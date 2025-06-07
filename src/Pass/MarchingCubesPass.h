@@ -25,9 +25,10 @@ public:
 	};
 
 public:
-	static void Init(VulkanEngine* engine, const VkDeviceAddress& voxelBufferDeviceAddress);
-	static void Execute(VulkanEngine* engine, VkCommandBuffer& cmd);
+	static void Init(VulkanEngine* engine);
+	static void Execute(VulkanEngine* engine, VkCommandBuffer cmd);
 	static void UpdateMCSettings(const MCSettings& mcSettings); // Updates the mcSettings in the Push Constants
+	static void SetVoxelBufferDeviceAddress(const VkDeviceAddress& voxelBufferDeviceAddress);
 	static void ClearResources(VulkanEngine* engine);
 private:
 	static VkPipeline Pipeline;

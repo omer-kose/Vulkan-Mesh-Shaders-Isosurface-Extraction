@@ -69,6 +69,7 @@ struct GPUDrawPushConstants
     VkDeviceAddress vertexBufferAddress;
 };
 
+// All the scenes need the same common information on descriptor set 0 and this struct will only extend if all the scenes need that
 struct GPUSceneData
 {
     glm::mat4 view;

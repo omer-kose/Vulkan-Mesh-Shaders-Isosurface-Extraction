@@ -17,7 +17,7 @@ public:
 	};
 public:
 	static void Init(VulkanEngine* engine, const MCSettings& mcSettings_in);
-	static void Execute(VulkanEngine* engine, VkCommandBuffer& cmd);
+	static void Execute(VulkanEngine* engine, VkCommandBuffer cmd);
 	static void Update();
 	static void ClearResources(VulkanEngine* engine);
 private:

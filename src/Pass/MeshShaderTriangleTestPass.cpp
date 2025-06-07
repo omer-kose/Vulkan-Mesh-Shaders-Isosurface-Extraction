@@ -51,7 +51,7 @@ void MeshShaderTriangleTestPass::Init(VulkanEngine* engine)
     vkDestroyShaderModule(engine->device, fragmentShader, nullptr);
 }
 
-void MeshShaderTriangleTestPass::Execute(VulkanEngine* engine, VkCommandBuffer& cmd)
+void MeshShaderTriangleTestPass::Execute(VulkanEngine* engine, VkCommandBuffer cmd)
 {
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, Pipeline);
     engine->setViewport(cmd);

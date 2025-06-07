@@ -17,7 +17,7 @@ T ceilDiv(T x, T y)
     return (x + y - 1) / y;
 }
 
-void MarchingCubesPass::Init(VulkanEngine* engine, const VkDeviceAddress& voxelBufferDeviceAddress)
+void MarchingCubesPass::Init(VulkanEngine* engine)
 {
     // Init the resources
     size_t lookupTableSize = sizeof(MarchingCubesLookupTable);
@@ -44,7 +44,6 @@ void MarchingCubesPass::Init(VulkanEngine* engine, const VkDeviceAddress& voxelB
     }
 
     // Push Constant (MC Settings are dynamic and updated via UpdateMCSettings function if needed (needs to be updated at least once of course))
-    PushConstants.voxelBufferDeviceAddress = voxelBufferDeviceAddress; // assigned once as the address does not change
     VkPushConstantRange pcRange{ .stageFlags = VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT, .offset = 0, .size = sizeof(MCPushConstant) };
 
     // Set descriptor sets
@@ -93,7 +92,7 @@ void MarchingCubesPass::Init(VulkanEngine* engine, const VkDeviceAddress& voxelB
     vkDestroyDescriptorSetLayout(engine->device, mcSetLayout, nullptr);
 }
 
-void MarchingCubesPass::Execute(VulkanEngine* engine, VkCommandBuffer& cmd)
+void MarchingCubesPass::Execute(VulkanEngine* engine, VkCommandBuffer cmd)
 {
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, Pipeline);
     // set dynamic state
@@ -112,6 +111,11 @@ void MarchingCubesPass::Execute(VulkanEngine* engine, VkCommandBuffer& cmd)
 void MarchingCubesPass::UpdateMCSettings(const MCSettings& mcSettings)
 {
     PushConstants.mcSettings = mcSettings;
+}
+
+void MarchingCubesPass::SetVoxelBufferDeviceAddress(const VkDeviceAddress& voxelBufferDeviceAddress)
+{
+    PushConstants.voxelBufferDeviceAddress = voxelBufferDeviceAddress; // assigned once as the address does not change
 }
 
 void MarchingCubesPass::ClearResources(VulkanEngine* engine)
