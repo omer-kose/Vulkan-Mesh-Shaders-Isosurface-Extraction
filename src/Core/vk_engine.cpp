@@ -629,6 +629,11 @@ VkExtent2D VulkanEngine::getWindowExtent() const
     return windowExtent;
 }
 
+void VulkanEngine::setColorAttachmentClearColor(const VkClearValue& clearValue)
+{
+    colorAttachmentClearValue = clearValue;
+}
+
 void VulkanEngine::m_initVulkan()
 {
     // Initialize Volk first (loads function ptr loader)

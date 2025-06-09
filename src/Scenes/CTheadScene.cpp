@@ -111,7 +111,10 @@ void CTheadScene::load(VulkanEngine* engine)
     pEngine->destroyBuffer(sourceBuffer);
 
     // Set the camera
-    mainCamera = Camera(glm::vec3(0.5f, 0.5f, 2.0f), 0.0f, 0.0f);
+    mainCamera = Camera(glm::vec3(-0.5f, -0.5f, 4.0f), 90.0f, 180.0f);
+
+    // Set attachment clear color
+    pEngine->setColorAttachmentClearColor(VkClearValue{0.6f, 0.9f, 1.0f, 1.0f});
 }
 
 void CTheadScene::processSDLEvents(SDL_Event& e)
@@ -134,7 +137,7 @@ void CTheadScene::update()
 
     VkExtent2D windowExtent = pEngine->getWindowExtent();
     // camera projection
-    sceneData.proj = glm::perspectiveRH_ZO(glm::radians(90.f), (float)windowExtent.width / (float)windowExtent.height, 0.1f, 10000.f);
+    sceneData.proj = glm::perspectiveRH_ZO(glm::radians(45.f), (float)windowExtent.width / (float)windowExtent.height, 0.1f, 10000.f);
 
     // invert the Y direction on projection matrix so that we are more similar
     // to opengl and gltf axis

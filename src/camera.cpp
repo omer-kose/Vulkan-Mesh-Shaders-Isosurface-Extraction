@@ -5,22 +5,26 @@ Camera::Camera()
     :
     position(glm::vec3(0.0f, 0.0f, 0.0f)),
     orientation(glm::quat(1.0f, 0.0f, 0.0f, 0.0f)),
-    speed(0.0005f),
-    mouseSensitivity(0.005f),
+    speed(0.05f),
+    mouseSensitivity(0.05f),
     velocity(glm::vec3(0.0f, 0.0f, 0.0f))
 
 {}
 
 Camera::Camera(const glm::vec3& position_in, float pitch, float yaw)
     :
-    position(position_in),
+    position(glm::vec3(0.0f, 0.0f, 0.0f)),
     speed(0.05f),
-    mouseSensitivity(0.002f),
+    mouseSensitivity(0.05f),
     velocity(glm::vec3(0.0f, 0.0f, 0.0f))
 {
-    glm::quat yawRot = glm::angleAxis(yaw, glm::vec3(0.0f, 1.0f, 0.0f));
-    glm::quat pitchRot = glm::angleAxis(pitch, glm::vec3(1.0f, 0.0f, 0.0f));
-    orientation = yawRot * glm::quat(1.0f, 0.0f, 0.0f, 0.0f) * pitchRot;
+    glm::quat yawRot = glm::angleAxis(glm::radians(yaw), glm::vec3(0.0f, 1.0f, 0.0f));
+    glm::quat pitchRot = glm::angleAxis(glm::radians(pitch), glm::vec3(1.0f, 0.0f, 0.0f));
+    orientation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+    orientation = orientation * yawRot;
+    orientation = orientation * pitchRot;
+    orientation = glm::normalize(orientation); // Prevent drift
+    position += glm::vec3(glm::toMat4(orientation) * glm::vec4(position_in, 0.0f));
 }
 
 glm::mat4 Camera::getViewMatrix()
@@ -72,8 +76,8 @@ void Camera::processSDLEvent(SDL_Event& e)
         float pitchDelta = -e.motion.yrel * mouseSensitivity;
 
         // Create rotation quaternions
-        glm::quat yawRot = glm::angleAxis(yawDelta, glm::vec3(0.0f, 1.0f, 0.0f));
-        glm::quat pitchRot = glm::angleAxis(pitchDelta, glm::vec3(1.0f, 0.0f, 0.0f));
+        glm::quat yawRot = glm::angleAxis(glm::radians(yawDelta), glm::vec3(0.0f, 1.0f, 0.0f));
+        glm::quat pitchRot = glm::angleAxis(glm::radians(pitchDelta), glm::vec3(1.0f, 0.0f, 0.0f));
 
         // Apply rotations (yaw is global up, pitch is local right)
         orientation = orientation * yawRot;

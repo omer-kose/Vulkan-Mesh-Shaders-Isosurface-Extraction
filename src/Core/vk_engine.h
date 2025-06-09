@@ -135,6 +135,7 @@ public:
 	const DrawContext* getDrawContext() const;
 
 	VkExtent2D getWindowExtent() const;
+	void setColorAttachmentClearColor(const VkClearValue& clearValue);
 
 public:
 	struct SDL_Window* window{ nullptr };
