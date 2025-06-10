@@ -4,8 +4,6 @@
 #include <Core/vk_initializers.h>
 #include <Core/vk_pipelines.h>
 
-#include <Pass/MarchingCubesPass.h>
-
 #include <fstream>
 
 #include "imgui.h"
@@ -112,6 +110,7 @@ void CTheadScene::load(VulkanEngine* engine)
 
     // Set the camera
     mainCamera = Camera(glm::vec3(-0.5f, -0.5f, 4.0f), 90.0f, 180.0f);
+    mainCamera = Camera(glm::vec3(-0.5f, -0.5f, 4.0f), 0.0f, 0.0f);
 
     // Set attachment clear color
     pEngine->setColorAttachmentClearColor(VkClearValue{0.6f, 0.9f, 1.0f, 1.0f});
@@ -156,6 +155,7 @@ void CTheadScene::update()
 void CTheadScene::drawFrame(VkCommandBuffer cmd)
 {
     MarchingCubesPass::Execute(pEngine, cmd);
+    CircleGridPlanePass::Execute(pEngine, cmd);
 }
 
 CTheadScene::~CTheadScene()

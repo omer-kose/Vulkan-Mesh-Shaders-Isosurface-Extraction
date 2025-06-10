@@ -4,7 +4,7 @@
 class VulkanEngine;
 struct RenderObject;
 
-class MeshShaderTriangleTestPass
+class CircleGridPlanePass
 {
 public:
 	static void Init(VulkanEngine* engine);

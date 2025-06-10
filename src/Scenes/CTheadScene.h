@@ -3,6 +3,7 @@
 #include "Scene.h"
 
 #include <Pass/MarchingCubesPass.h>
+#include <Pass/CircleGridPlanePass.h>
 
 class CTheadScene : public Scene
 {

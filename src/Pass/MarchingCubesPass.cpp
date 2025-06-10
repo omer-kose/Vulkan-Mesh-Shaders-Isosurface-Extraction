@@ -9,7 +9,7 @@ VkPipeline MarchingCubesPass::Pipeline = VK_NULL_HANDLE;
 VkPipelineLayout MarchingCubesPass::PipelineLayout = VK_NULL_HANDLE;
 VkDescriptorSet MarchingCubesPass::MCDescriptorSet = VK_NULL_HANDLE;
 AllocatedBuffer MarchingCubesPass::MCLookupTableBuffer = {};
-MarchingCubesPass::MCPushConstant MarchingCubesPass::PushConstants = {};
+MarchingCubesPass::MCPushConstants MarchingCubesPass::PushConstants = {};
 
 template<typename T>
 T ceilDiv(T x, T y)
@@ -44,7 +44,7 @@ void MarchingCubesPass::Init(VulkanEngine* engine)
     }
 
     // Push Constant (MC Settings are dynamic and updated via UpdateMCSettings function if needed (needs to be updated at least once of course))
-    VkPushConstantRange pcRange{ .stageFlags = VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT, .offset = 0, .size = sizeof(MCPushConstant) };
+    VkPushConstantRange pcRange{ .stageFlags = VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT, .offset = 0, .size = sizeof(MCPushConstants) };
 
     // Set descriptor sets
     DescriptorLayoutBuilder layoutBuilder;
@@ -99,7 +99,7 @@ void MarchingCubesPass::Execute(VulkanEngine* engine, VkCommandBuffer cmd)
     engine->setViewport(cmd);
     engine->setScissor(cmd);
     // push constants
-    vkCmdPushConstants(cmd, PipelineLayout, VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT, 0, sizeof(MCPushConstant), &PushConstants);
+    vkCmdPushConstants(cmd, PipelineLayout, VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT, 0, sizeof(MCPushConstants), &PushConstants);
     // bind descriptors
     VkDescriptorSet sceneDescriptorSet = engine->getSceneBufferDescriptorSet();
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, PipelineLayout, 0, 1, &sceneDescriptorSet, 0, nullptr);

@@ -17,7 +17,7 @@ public:
 		glm::uvec3 gridSize; // Either determined by the input data or the user if a custom SDF is used (such as a noise function)
 		float isoValue;
 	};
-	struct MCPushConstant
+	struct MCPushConstants
 	{
 		MCSettings mcSettings; // This is directly controlled by user. Pass only uses the already written values does not writes onto it. Updating the settings is done via UpdateMCSettings function
 		// Static data
@@ -36,5 +36,5 @@ private:
 	static VkDescriptorSet MCDescriptorSet; // set=1
 	// Resources
 	static AllocatedBuffer MCLookupTableBuffer; // set=1 binding=0 uniform buffer
-	static MCPushConstant PushConstants; // MC Settings are kept track of via PushConstants. Engine can modify this via Update functions
+	static MCPushConstants PushConstants; // MC Settings are kept track of via PushConstants. Engine can modify this via Update functions
 };

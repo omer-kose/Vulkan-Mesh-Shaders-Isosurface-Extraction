@@ -4,7 +4,7 @@
 #include <Core/vk_descriptors.h>
 #include <Core/vk_loader.h>
 
-#include <Pass/MeshShaderTriangleTestPass.h>
+#include <Pass/CircleGridPlanePass.h>
 #include <Pass/MarchingCubesPassSDF.h>
 #include <Pass/MarchingCubesPass.h>
 

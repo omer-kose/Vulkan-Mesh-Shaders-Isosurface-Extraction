@@ -237,8 +237,7 @@ void VulkanEngine::drawMain(VkCommandBuffer cmd)
 
 void VulkanEngine::drawGeometry(VkCommandBuffer cmd)
 {
-    // Go through all the graphics passes and execute them
-    MarchingCubesPass::Execute(this, cmd);
+    activeScene->drawFrame(cmd);
 
     // Drawing is done context can be cleared
     mainDrawContext.opaqueGLTFSurfaces.clear();
@@ -912,7 +911,7 @@ void VulkanEngine::m_initDescriptors()
     {
         DescriptorLayoutBuilder builder;
         builder.addBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
-        sceneDescriptorLayout = builder.build(device, VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_FRAGMENT_BIT);
+        sceneDescriptorLayout = builder.build(device, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_FRAGMENT_BIT);
     }
 
     // Allocate a descriptor set for the draw image
@@ -956,11 +955,13 @@ void VulkanEngine::m_initDescriptors()
 void VulkanEngine::m_initPasses()
 {
     MarchingCubesPass::Init(this);
+    CircleGridPlanePass::Init(this);
 }
 
 void VulkanEngine::m_clearPassResources()
 {
     MarchingCubesPass::ClearResources(this);
+    CircleGridPlanePass::ClearResources(this);
 }
 
 void VulkanEngine::m_initMaterialLayouts()
