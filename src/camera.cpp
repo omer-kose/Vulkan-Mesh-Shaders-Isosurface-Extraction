@@ -13,18 +13,24 @@ Camera::Camera()
 
 Camera::Camera(const glm::vec3& position_in, float pitch, float yaw)
     :
-    position(glm::vec3(0.0f, 0.0f, 0.0f)),
+    position(position_in),
     speed(0.05f),
     mouseSensitivity(0.05f),
     velocity(glm::vec3(0.0f, 0.0f, 0.0f))
 {
-    glm::quat yawRot = glm::angleAxis(glm::radians(yaw), glm::vec3(0.0f, 1.0f, 0.0f));
-    glm::quat pitchRot = glm::angleAxis(glm::radians(pitch), glm::vec3(1.0f, 0.0f, 0.0f));
     orientation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
-    orientation = orientation * yawRot;
-    orientation = orientation * pitchRot;
-    orientation = glm::normalize(orientation); // Prevent drift
-    position += glm::vec3(glm::toMat4(orientation) * glm::vec4(position_in, 0.0f));
+    // World-space Y axis (global up)
+    glm::quat yawRot = glm::angleAxis(glm::radians(yaw), glm::vec3(0.0f, 1.0f, 0.0f));
+
+    // Camera's local X axis (right)
+    glm::vec3 right = glm::rotate(orientation, glm::vec3(1.0f, 0.0f, 0.0f));
+    glm::quat pitchRot = glm::angleAxis(glm::radians(pitch), right);
+
+    // Apply yaw first (global), then pitch (local)
+    orientation = yawRot * orientation;
+    orientation = pitchRot * orientation;
+
+    orientation = glm::normalize(orientation);
 }
 
 glm::mat4 Camera::getViewMatrix()
