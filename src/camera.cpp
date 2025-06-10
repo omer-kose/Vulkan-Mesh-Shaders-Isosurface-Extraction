@@ -71,18 +71,21 @@ void Camera::processSDLEvent(SDL_Event& e)
     }
     else if(e.type == SDL_MOUSEMOTION && rightMouseButtonDown)
     {
-        // Calculate rotation deltas
         float yawDelta = -e.motion.xrel * mouseSensitivity;
         float pitchDelta = -e.motion.yrel * mouseSensitivity;
 
-        // Create rotation quaternions
+        // World-space Y axis (global up)
         glm::quat yawRot = glm::angleAxis(glm::radians(yawDelta), glm::vec3(0.0f, 1.0f, 0.0f));
-        glm::quat pitchRot = glm::angleAxis(glm::radians(pitchDelta), glm::vec3(1.0f, 0.0f, 0.0f));
 
-        // Apply rotations (yaw is global up, pitch is local right)
-        orientation = orientation * yawRot;
-        orientation = orientation * pitchRot;
-        orientation = glm::normalize(orientation); // Prevent drift
+        // Camera's local X axis (right)
+        glm::vec3 right = glm::rotate(orientation, glm::vec3(1.0f, 0.0f, 0.0f));
+        glm::quat pitchRot = glm::angleAxis(glm::radians(pitchDelta), right);
+
+        // Apply yaw first (global), then pitch (local)
+        orientation = yawRot * orientation;
+        orientation = pitchRot * orientation;
+
+        orientation = glm::normalize(orientation);
     }
 }
 
