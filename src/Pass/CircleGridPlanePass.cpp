@@ -7,6 +7,7 @@
 // Define the static members
 VkPipeline CircleGridPlanePass::Pipeline = VK_NULL_HANDLE;
 VkPipelineLayout CircleGridPlanePass::PipelineLayout = VK_NULL_HANDLE;
+CircleGridPlanePass::GridPlanePushConstants CircleGridPlanePass::PushConstants = {};
 
 void CircleGridPlanePass::Init(VulkanEngine* engine)
 {
@@ -23,9 +24,13 @@ void CircleGridPlanePass::Init(VulkanEngine* engine)
         fmt::println("Error when building the grid plane fragment shader");
     }
 
+    VkPushConstantRange pcRange = { .stageFlags = VK_SHADER_STAGE_VERTEX_BIT, .offset = 0, .size = sizeof(GridPlanePushConstants) };
+
     VkDescriptorSetLayout layouts[] = { engine->getSceneDescriptorLayout() };
 
     VkPipelineLayoutCreateInfo pipelineLayoutInfo = vkinit::pipeline_layout_create_info();
+    pipelineLayoutInfo.pushConstantRangeCount = 1; 
+    pipelineLayoutInfo.pPushConstantRanges = &pcRange;
     pipelineLayoutInfo.setLayoutCount = 1;
     pipelineLayoutInfo.pSetLayouts = layouts;
 
@@ -58,6 +63,7 @@ void CircleGridPlanePass::Execute(VulkanEngine* engine, VkCommandBuffer cmd)
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, Pipeline);
     engine->setViewport(cmd);
     engine->setScissor(cmd);
+    vkCmdPushConstants(cmd, PipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GridPlanePushConstants), &PushConstants);
     VkDescriptorSet sceneDescriptorSet = engine->getSceneBufferDescriptorSet();
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, PipelineLayout, 0, 1, &sceneDescriptorSet, 0, 0);
 
@@ -72,4 +78,9 @@ void CircleGridPlanePass::ClearResources(VulkanEngine* engine)
 {
     vkDestroyPipelineLayout(engine->device, PipelineLayout, nullptr);
     vkDestroyPipeline(engine->device, Pipeline, nullptr);
+}
+
+void CircleGridPlanePass::SetPlaneHeight(float height)
+{
+    PushConstants.planeHeight = height;
 }

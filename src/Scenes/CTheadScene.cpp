@@ -96,7 +96,7 @@ void CTheadScene::load(VulkanEngine* engine)
         vkCmdDispatch(cmd, ceilDiv(converterPC.gridSize.x, 8u), ceilDiv(converterPC.gridSize.y, 8u), ceilDiv(converterPC.gridSize.z, 8u));
     });
 
-    mcSettings.gridSize = converterPC.gridSize;
+    mcSettings.gridSize = glm::uvec3(converterPC.gridSize.x, converterPC.gridSize.z, converterPC.gridSize.y);
     mcSettings.isoValue = 0.5f;
 
     MarchingCubesPass::SetVoxelBufferDeviceAddress(pEngine->getBufferDeviceAddress(voxelBuffer.buffer));
@@ -109,11 +109,13 @@ void CTheadScene::load(VulkanEngine* engine)
     pEngine->destroyBuffer(sourceBuffer);
 
     // Set the camera
-    mainCamera = Camera(glm::vec3(-0.5f, -0.5f, 4.0f), 90.0f, 180.0f);
-    mainCamera = Camera(glm::vec3(-0.5f, -0.5f, 4.0f), 0.0f, 0.0f);
+    mainCamera = Camera(glm::vec3(0.0f, 0.0f, 2.0f), 0.0f, 0.0f);
 
     // Set attachment clear color
     pEngine->setColorAttachmentClearColor(VkClearValue{0.6f, 0.9f, 1.0f, 1.0f});
+
+    // Set Grid Plane height
+    CircleGridPlanePass::SetPlaneHeight(-0.1f);
 }
 
 void CTheadScene::processSDLEvents(SDL_Event& e)
@@ -146,7 +148,8 @@ void CTheadScene::update()
     //some default lighting parameters
     sceneData.ambientColor = glm::vec4(0.1f);
     sceneData.sunlightColor = glm::vec4(1.0f);
-    sceneData.sunlightDirection = glm::vec4(0.0f, -1.0f, -0.5f, 1.0f);
+    glm::vec3 directionalLightDir = glm::normalize(glm::vec3(0.0f, -1.0f, -0.5f));
+    sceneData.sunlightDirection = glm::vec4(directionalLightDir, 1.0f);
 
     // Update the MC params (cheap operation but could be checked if there is any change)
     MarchingCubesPass::UpdateMCSettings(mcSettings);

@@ -17,6 +17,7 @@ const vec3 vertices[6] = vec3[6](
 void main()
 {
     vec3 localPos = vertices[gl_VertexIndex];
+    localPos.y += pushConstants.planeHeight;
 
     float planeScale = 10.0;
     localPos *= planeScale;

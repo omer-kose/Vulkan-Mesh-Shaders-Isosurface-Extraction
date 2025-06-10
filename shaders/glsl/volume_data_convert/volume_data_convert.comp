@@ -40,6 +40,8 @@ void main()
     }
 
     uint index = id.x + pushConstants.gridSize.x * (id.y + pushConstants.gridSize.y * id.z);
+    uvec3 flippedId = uvec3(id.x, pushConstants.gridSize.z - 1 - id.z, pushConstants.gridSize.y - 1 - id.y);
+    uint dstIndex = flippedId.x + pushConstants.gridSize.x * (flippedId.y + pushConstants.gridSize.z * flippedId.z);
 
     // Source voxel fetch
     uint data = pushConstants.sourceBuffer.source[index / 2];
@@ -51,5 +53,5 @@ void main()
     data = ((data & 0xff) << 8) + (data >> 8);
 
     // uint -> float
-    pushConstants.voxelBuffer.voxels[index] = 20.0 * data / 0xffff;
+    pushConstants.voxelBuffer.voxels[dstIndex] = 20.0 * data / 0xffff;
 }

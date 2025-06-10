@@ -9,3 +9,8 @@ layout(set = 0, binding = 0, scalar) uniform SceneData
 	vec4 sunlightDirection; //w for sun power
 	vec4 sunlightColor;
 } sceneData;
+
+layout(push_constant, scalar) uniform PushConstants
+{
+	float planeHeight;
+} pushConstants;

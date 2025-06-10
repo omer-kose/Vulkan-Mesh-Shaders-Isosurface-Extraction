@@ -13,7 +13,7 @@ layout(location = 0) in MeshIn
 void main()
 {
 	vec3 normal = meshIn.normal;
-	float lightValue = max(dot(normal, sceneData.sunlightDirection.xyz), 0.1f);
+	float lightValue = max(dot(normal, -sceneData.sunlightDirection.xyz), 0.1f);
 
 	vec3 color = vec3(0.5f);
 	vec3 ambient = color *  sceneData.ambientColor.xyz;
