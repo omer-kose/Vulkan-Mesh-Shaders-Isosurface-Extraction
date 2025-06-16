@@ -433,10 +433,31 @@ AllocatedBuffer VulkanEngine::createAndUploadGPUBuffer(size_t allocSize, VkBuffe
     return newBuffer;
 }
 
+AllocatedBuffer VulkanEngine::downloadGPUBuffer(VkBuffer gpuBuffer, size_t allocSize, size_t srcOffset, size_t dstOffset)
+{
+    AllocatedBuffer cpuBuffer = createBuffer(allocSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
+
+    immediateSubmit([&](VkCommandBuffer cmd) {
+        VkBufferCopy copy{};
+        copy.dstOffset = dstOffset;
+        copy.srcOffset = srcOffset;
+        copy.size = allocSize;
+
+        vkCmdCopyBuffer(cmd, gpuBuffer, cpuBuffer.buffer, 1, &copy);
+    });
+
+    return cpuBuffer;
+}
+
 VkDeviceAddress VulkanEngine::getBufferDeviceAddress(VkBuffer buffer)
 {
     VkBufferDeviceAddressInfo deviceAddressInfo{ .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .buffer = buffer };
     return vkGetBufferDeviceAddress(device, &deviceAddressInfo);
+}
+
+void* VulkanEngine::getMappedStagingBufferData(const AllocatedBuffer& buffer)
+{
+    return buffer.allocation->GetMappedData();
 }
 
 void VulkanEngine::destroyBuffer(const AllocatedBuffer& buffer)
@@ -1126,7 +1147,7 @@ void VulkanEngine::m_initGlobalSceneBuffer()
 void VulkanEngine::m_initSceneInformation()
 {
     // Harcoding the scene names. 
-    sceneNames = { "CThead" };
+    sceneNames = { "CThead", "CTheadChunks" };
     selectedSceneID = 0;
     loadScene(selectedSceneID);
 }
@@ -1137,6 +1158,10 @@ void VulkanEngine::loadScene(uint32_t sceneID)
     {
         case 0:
             activeScene = std::make_unique<CTheadScene>();
+            activeScene->load(this);
+            break;
+        case 1:
+            activeScene = std::make_unique<CTheadChunksScene>();
             activeScene->load(this);
             break;
         default:
