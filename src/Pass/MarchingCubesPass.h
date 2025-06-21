@@ -20,8 +20,10 @@ public:
 	struct MCPushConstants
 	{
 		MCSettings mcSettings; // This is directly controlled by user. Pass only uses the already written values does not writes onto it. Updating the settings is done via UpdateMCSettings function
-		// Static data
 		VkDeviceAddress voxelBufferDeviceAddress;
+		// Positional Limits of the Grid
+		glm::vec3 lowerCornerPos;
+		glm::vec3 upperCornerPos;
 	};
 
 public:
@@ -29,6 +31,7 @@ public:
 	static void Execute(VulkanEngine* engine, VkCommandBuffer cmd);
 	static void UpdateMCSettings(const MCSettings& mcSettings); // Updates the mcSettings in the Push Constants
 	static void SetVoxelBufferDeviceAddress(const VkDeviceAddress& voxelBufferDeviceAddress);
+	static void SetGridCornerPositions(const glm::vec3& lowerCornerPos, const glm::vec3& upperCornerPos);
 	static void ClearResources(VulkanEngine* engine);
 private:
 	static VkPipeline Pipeline;

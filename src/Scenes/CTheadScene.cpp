@@ -100,6 +100,7 @@ void CTheadScene::load(VulkanEngine* engine)
     mcSettings.isoValue = 0.5f;
 
     MarchingCubesPass::SetVoxelBufferDeviceAddress(pEngine->getBufferDeviceAddress(voxelBuffer.buffer));
+    MarchingCubesPass::SetGridCornerPositions(glm::vec3(-0.5f), glm::vec3(0.5f));
     MarchingCubesPass::UpdateMCSettings(mcSettings);;
 
     // Delete the temporary resources

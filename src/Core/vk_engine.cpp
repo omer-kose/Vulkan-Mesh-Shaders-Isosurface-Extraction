@@ -1154,6 +1154,8 @@ void VulkanEngine::m_initSceneInformation()
 
 void VulkanEngine::loadScene(uint32_t sceneID)
 {
+    // Make sure that GPU is done with the operations with the existing scene
+    vkDeviceWaitIdle(device);
     switch(sceneID)
     {
         case 0:

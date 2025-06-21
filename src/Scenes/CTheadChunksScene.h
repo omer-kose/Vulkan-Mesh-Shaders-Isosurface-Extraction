@@ -18,5 +18,8 @@ public:
 	virtual ~CTheadChunksScene();
 private:
 	MarchingCubesPass::MCSettings mcSettings; // Keep track of settings to be able to modify it via GUI and update once before the render
-	AllocatedBuffer voxelBuffer;
+	std::unique_ptr<ChunkedVolumeData> chunkedVolumeData;
+	AllocatedBuffer voxelChunksBuffer; // a pre-determined sized buffer that holds all the chunks
+	VkDeviceAddress voxelChunksBufferBaseAddress;
+	size_t numChunksInGpu;
 };
