@@ -21,6 +21,7 @@ layout(set = 0, binding = 0, scalar) uniform SceneData
 struct MCSettings
 {
 	uvec3 gridSize; // Either determined by the input data or the user if a custom SDF is used (such as a noise function)
+	uvec3 shellSize; // For chunks a shell with +2 on right-bottom-front boundaries for correct computation. For a non-chunked volume gridSize==shellSize. This is only used for fetching the data correctly with voxelValue()
 	float isoValue;
 };
 
@@ -59,5 +60,5 @@ struct TaskPayload
 */
 float voxelValue(uvec3 idx)
 {
-	return pushConstants.voxelBuffer.voxels[idx.x + pushConstants.mcSettings.gridSize.x * (idx.y + pushConstants.mcSettings.gridSize.y * idx.z)];
+	return pushConstants.voxelBuffer.voxels[idx.x + pushConstants.mcSettings.shellSize.x * (idx.y + pushConstants.mcSettings.shellSize.y * idx.z)];
 }

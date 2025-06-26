@@ -5,6 +5,7 @@
 #include <Core/vk_loader.h>
 
 #include <Pass/CircleGridPlanePass.h>
+#include <Pass/ChunkVisualizationPass.h>
 #include <Pass/MarchingCubesPassSDF.h>
 #include <Pass/MarchingCubesPass.h>
 

@@ -171,29 +171,36 @@ void CTheadChunksScene::load(VulkanEngine* engine)
     pEngine->destroyBuffer(voxelBufferCPU);
 
     // Create the chunked version of the grid
-    glm::uvec3 chunkSize = glm::uvec3(31, 31, 31);
+    glm::uvec3 chunkSize = glm::uvec3(32, 32, 32);
     chunkedVolumeData = std::make_unique<ChunkedVolumeData>(pEngine, gridData, glm::vec3(gridSize.x, gridSize.z, gridSize.y), chunkSize, glm::vec3(-0.5f), glm::vec3(0.5f));
 
     // Allocate the chunk buffer on GPU
     numChunksInGpu = 32;
-    size_t voxelChunksBufferSize = numChunksInGpu * (chunkSize.x + 1) * (chunkSize.y + 1) * (chunkSize.z + 1) * sizeof(float); // +1 as there are n + 1 points in a chunk of n voxels
+    size_t voxelChunksBufferSize = numChunksInGpu * (chunkSize.x + 2) * (chunkSize.y + 2) * (chunkSize.z + 2) * sizeof(float);
     voxelChunksBuffer = pEngine->createBuffer(voxelChunksBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
     voxelChunksBufferBaseAddress = pEngine->getBufferDeviceAddress(voxelChunksBuffer.buffer);
 
     // Set MC Settings
-    mcSettings.gridSize = chunkSize + 1u; // Grid is a single chunk for each mesh shader dispatch. In the Mesh shader, points of the chunks are processed so passing +1 explicitly.
+    mcSettings.gridSize = chunkSize; // Grid is a single chunk for each mesh shader dispatch.
+    mcSettings.shellSize = chunkSize + 2u;
     mcSettings.isoValue = 0.5f;
 
     MarchingCubesPass::UpdateMCSettings(mcSettings);
 
+    // Set Grid Plane Pass Settings
+    CircleGridPlanePass::SetPlaneHeight(-0.1f);
+
+    // Prepare Chunk Visualization
+    createChunkVisualizationBuffer(chunkedVolumeData->getChunks());
+    ChunkVisualizationPass::SetChunkBufferDeviceAddress(chunkVisualizationBufferAddress);
+    ChunkVisualizationPass::SetInputIsoValue(mcSettings.isoValue);
+
     // Set the camera
     mainCamera = Camera(glm::vec3(-2.0f, 0.0f, 2.0f), 0.0f, -45.0f);
+    mainCamera.setSpeed(0.02f);
 
     // Set attachment clear color
     pEngine->setColorAttachmentClearColor(VkClearValue{ 0.6f, 0.9f, 1.0f, 1.0f });
-
-    // Set Grid Plane height
-    CircleGridPlanePass::SetPlaneHeight(-0.1f);
 }
 
 void CTheadChunksScene::processSDLEvents(SDL_Event& e)
@@ -205,6 +212,7 @@ void CTheadChunksScene::handleUI()
 {
     ImGui::Begin("Marching Cubes Parameters");
     ImGui::SliderFloat("Iso Value", &mcSettings.isoValue, 0.0f, 1.0f);
+    ImGui::Checkbox("Show Chunks", &showChunks);
     ImGui::End();
 }
 
@@ -231,11 +239,17 @@ void CTheadChunksScene::update()
 
     // Update the MC params (cheap operation but could be checked if there is any change)
     MarchingCubesPass::UpdateMCSettings(mcSettings);
+
+    ChunkVisualizationPass::SetInputIsoValue(mcSettings.isoValue);
 }
 
 void CTheadChunksScene::drawFrame(VkCommandBuffer cmd)
 {
     CircleGridPlanePass::Execute(pEngine, cmd);
+    if(showChunks)
+    {
+        ChunkVisualizationPass::Execute(pEngine, cmd, chunkedVolumeData->getNumChunksFlat(), 3.0f);
+    }
     
     // Fetch the chunks that contain the input iso-value in range
     std::vector<VolumeChunk*> renderChunks = chunkedVolumeData->query(mcSettings.isoValue);
@@ -244,7 +258,7 @@ void CTheadChunksScene::drawFrame(VkCommandBuffer cmd)
     // Precompute the values that will be needed for buffer upload
     VkBuffer chunksStagingBuffer = chunkedVolumeData->getStagingBuffer();
     glm::uvec3 chunkSize = chunkedVolumeData->getChunkSize();
-    size_t chunkSizeInBytes = (chunkSize.x + 1) * (chunkSize.y + 1) * (chunkSize.z + 1) * sizeof(float);
+    size_t chunkSizeInBytes = (chunkSize.x + 2) * (chunkSize.y + 2) * (chunkSize.z + 2) * sizeof(float);
     std::vector<VkBufferCopy> copyRegions(numChunksInGpu); // allocating the maximum size will be reused by all the batches
 
     // Vulkan strictly forbids transfer operations in a render-pass so, I will end the render-pass before each transfer and begin after the operation. The contents of the drawImage should not be cleared.
@@ -297,4 +311,33 @@ void CTheadChunksScene::drawFrame(VkCommandBuffer cmd)
 CTheadChunksScene::~CTheadChunksScene()
 {
     pEngine->destroyBuffer(voxelChunksBuffer);
+    pEngine->destroyBuffer(chunkVisualizationBuffer);
+}
+
+void CTheadChunksScene::createChunkVisualizationBuffer(const std::vector<VolumeChunk>& chunks)
+{
+    struct ChunkVisInformation
+    {
+        glm::vec3 lowerCornerPos;
+        glm::vec3 upperCornerPos;
+        float minIsoValue;
+        float maxIsoValue;
+    };
+
+    size_t numChunks = chunks.size();
+    size_t stagingBufferSize = numChunks * sizeof(ChunkVisInformation);
+    std::vector<ChunkVisInformation> chunkVisInfo(numChunks);
+    // Fill in the chunk visualization info
+    for(size_t i = 0; i < numChunks; ++i)
+    {
+        const VolumeChunk& chunk = chunks[i];
+        chunkVisInfo[i].lowerCornerPos = chunk.lowerCornerPos;
+        chunkVisInfo[i].upperCornerPos = chunk.upperCornerPos;
+        chunkVisInfo[i].minIsoValue = chunk.minIsoValue;
+        chunkVisInfo[i].maxIsoValue = chunk.maxIsoValue;
+    }
+
+    // Create the Chunk Visualization GPU buffer from the staging buffer
+    chunkVisualizationBuffer = pEngine->createAndUploadGPUBuffer(stagingBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, chunkVisInfo.data());
+    chunkVisualizationBufferAddress = pEngine->getBufferDeviceAddress(chunkVisualizationBuffer.buffer);
 }

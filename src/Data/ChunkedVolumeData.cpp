@@ -11,11 +11,16 @@ ChunkedVolumeData::ChunkedVolumeData(VulkanEngine* engine, const std::vector<flo
 {
 	pEngine = engine;
 	/*
-		Given chunks of n voxels, there are actually n+1 points. Volume Data input consists of points, for n points there are n-1 voxels.
+		Chunk size determines how many points on each axis of a chunk. Each point corresponds to the top-left-back point of the voxel. So, chunk size of n means, n top-left-back points and thus n voxels.
+		However, for the bottom-right-front boundary, right neighbouring value is needed to be able reconstruct triangles in that voxel so that value is also read, thus +1.
+		Moreover, to be able to compute normals consistently (as I am using forward differences for normals), the right neighbouring value of that right neighbour is needed, thus another +1.
+		So, each chunk actualy contains a +2 shell on their bottom-right-front boundaries for correct reconstruction. 
+
+		Note: the last +1 for the normals could be alleviated by computing the normals using backward differences on the boundaries. For consistency, I am having +2.
 	*/
-	numChunks = (gridSize - 1u + chunkSize - 1u) / chunkSize;
+	numChunks = (gridSize + chunkSize - 1u) / chunkSize;
 	size_t numChunksFlat = numChunks.z * numChunks.y * numChunks.x;
-	size_t numPointsPerChunk = (chunkSize.z + 1) * (chunkSize.y + 1) * (chunkSize.x + 1);
+	size_t numPointsPerChunk = (chunkSize.z + 2) * (chunkSize.y + 2) * (chunkSize.x + 2);
 	chunks.reserve(numChunksFlat);
 
 	// Allocate the staging buffer
@@ -27,7 +32,7 @@ ChunkedVolumeData::ChunkedVolumeData(VulkanEngine* engine, const std::vector<flo
 	*/
 	for(size_t i = 0; i < numChunksFlat * numPointsPerChunk; ++i)
 	{
-		pChunksStagingBuffer[i] = -FLT_MAX;
+		pChunksStagingBuffer[i] = 0.0f;
 	}
 
 	// Divide volume into chunks
@@ -70,9 +75,19 @@ glm::uvec3 ChunkedVolumeData::getChunkSize() const
 	return chunkSize;
 }
 
+size_t ChunkedVolumeData::getNumChunksFlat() const
+{
+	return chunks.size();
+}
+
 VkBuffer ChunkedVolumeData::getStagingBuffer() const
 {
 	return chunksStagingBuffer.buffer;
+}
+
+const std::vector<VolumeChunk>& ChunkedVolumeData::getChunks() const
+{
+	return chunks;
 }
 
 ChunkedVolumeData::~ChunkedVolumeData()
@@ -87,10 +102,8 @@ void ChunkedVolumeData::extractChunkData(const std::vector<float>& volumeData, s
 {
 	// Compute the bound indices of the chunk for fetching the data from volume data. (Mapping from chunk index to actual grid index)
 	glm::uvec3 startIndex = chunkSize * chunk.chunkIndex;
-	glm::uvec3 endIndex = glm::min(startIndex + chunkSize + 1u, gridSize); // exclusive end, +1 as there are n+1 points in a chunk of n voxels
+	glm::uvec3 endIndex = glm::min(startIndex + chunkSize + 2u, gridSize); // exclusive end
 	
-	// TODO: If chunk size is 32 for example, there are actually 33 points in any axis. Therefore, both allocation and processing limits are wrong. Fix that. It should be quite simple just alloc chunkSize + 1 and process accordingly. On GPU side as well
-
 	// TODO: Check this after fixing the thing above
 	// Compute the lower and upper corner positions of the chunk from the grid corners.
 	glm::vec3 stepSize = (gridUpperCornerPos - gridLowerCornerPos) / glm::vec3(gridSize - 1u);
@@ -101,12 +114,12 @@ void ChunkedVolumeData::extractChunkData(const std::vector<float>& volumeData, s
 	chunk.maxIsoValue = -FLT_MAX;
 
 	// Compute and store the offset of the given chunk in the staging buffer
-	size_t chunkVoxelsFlatIndex = flatChunkIndex * ((chunkSize.x + 1) * (chunkSize.y + 1) * (chunkSize.z + 1)); // the actual starting index of the voxels of the chunk in the staging buffer
+	size_t chunkVoxelsFlatIndex = flatChunkIndex * ((chunkSize.x + 2) * (chunkSize.y + 2) * (chunkSize.z + 2)); // the actual starting index of the voxels of the chunk in the staging buffer
 	chunk.stagingBufferOffset = chunkVoxelsFlatIndex * sizeof(float);
 	
 	float* pChunkVoxels = pChunksStagingBuffer + chunkVoxelsFlatIndex;
-	
-	glm::uvec3 pointsPerAxis = chunkSize + 1u;
+
+	glm::uvec3 pointsPerChunk = chunkSize + 2u; 
 
 	for(size_t z = startIndex.z; z < endIndex.z; ++z)
 	{
@@ -119,7 +132,7 @@ void ChunkedVolumeData::extractChunkData(const std::vector<float>& volumeData, s
 				chunk.maxIsoValue = std::max(chunk.maxIsoValue, val);
 				// Write the value into the correct position in the staging buffer
 				glm::uvec3 localIdx = glm::uvec3(x, y, z) - startIndex;
-				pChunkVoxels[localIdx.x + pointsPerAxis.x * (localIdx.y + pointsPerAxis.y * localIdx.z)] = val;
+				pChunkVoxels[localIdx.x + pointsPerChunk.x * (localIdx.y + pointsPerChunk.y * localIdx.z)] = val;
 			}
 		}
 	}

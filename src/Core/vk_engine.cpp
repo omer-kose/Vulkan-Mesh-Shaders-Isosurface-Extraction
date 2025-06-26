@@ -693,6 +693,10 @@ void VulkanEngine::m_initVulkan()
     features12.uniformAndStorageBuffer8BitAccess = true;
     features12.scalarBlockLayout = true;
 
+    // Vulkan 1.0 features
+    VkPhysicalDeviceFeatures features{};
+    features.wideLines = true;
+
     VkPhysicalDeviceMeshShaderFeaturesEXT meshShaderFeatures{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT };
     meshShaderFeatures.taskShader = true;
     meshShaderFeatures.meshShader = true;
@@ -703,6 +707,7 @@ void VulkanEngine::m_initVulkan()
         .set_minimum_version(1, 3)
         .set_required_features_13(features13)
         .set_required_features_12(features12)
+        .set_required_features(features)
         .add_required_extension(VK_EXT_MESH_SHADER_EXTENSION_NAME)
         .add_required_extension_features(meshShaderFeatures)
         .set_surface(surface)
@@ -977,12 +982,14 @@ void VulkanEngine::m_initPasses()
 {
     MarchingCubesPass::Init(this);
     CircleGridPlanePass::Init(this);
+    ChunkVisualizationPass::Init(this);
 }
 
 void VulkanEngine::m_clearPassResources()
 {
     MarchingCubesPass::ClearResources(this);
     CircleGridPlanePass::ClearResources(this);
+    ChunkVisualizationPass::ClearResources(this);
 }
 
 void VulkanEngine::m_initMaterialLayouts()

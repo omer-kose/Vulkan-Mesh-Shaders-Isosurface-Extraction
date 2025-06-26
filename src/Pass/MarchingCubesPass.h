@@ -6,7 +6,6 @@
 #include "glm/glm.hpp"
 
 class VulkanEngine;
-struct RenderObject;
 
 class MarchingCubesPass
 {
@@ -15,6 +14,7 @@ public:
 	struct MCSettings
 	{
 		glm::uvec3 gridSize; // Either determined by the input data or the user if a custom SDF is used (such as a noise function)
+		glm::uvec3 shellSize; // For chunks a shell with +2 on right-bottom-front boundaries for correct computation. For a non-chunked volume gridSize==shellSize. This is only used for fetching the data correctly with voxelValue()
 		float isoValue;
 	};
 	struct MCPushConstants

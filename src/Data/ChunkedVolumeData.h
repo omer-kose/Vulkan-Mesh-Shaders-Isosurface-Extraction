@@ -27,7 +27,9 @@ public:
 	std::vector<VolumeChunk*> query(float isoValue) const;
 	glm::uvec3 getNumChunks() const;
 	glm::uvec3 getChunkSize() const;
+	size_t getNumChunksFlat() const;
 	VkBuffer getStagingBuffer() const;
+	const std::vector<VolumeChunk>& getChunks() const;
 	~ChunkedVolumeData();
 private:
 	void extractChunkData(const std::vector<float>& volumeData, size_t flatChunkIndex, VolumeChunk& chunk);

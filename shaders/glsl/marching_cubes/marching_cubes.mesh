@@ -63,7 +63,7 @@ void main()
 	idx.z += (off == 3) ? 1 : 0;
 
 	// On the upper boundary corners (right, bottom, and front), offsetting might cause going out of bounds so clamp in any case
-	idx = min(idx, pushConstants.mcSettings.gridSize - uvec3(1));
+	idx = min(idx, pushConstants.mcSettings.shellSize - uvec3(1));
 
 	// Evaluate the field function for all 32 lanes
 	float value = voxelValue(idx);
@@ -94,9 +94,10 @@ void main()
         SetMeshOutputsEXT(vertexCount, triangleCount);
 	}
 
-	// Reconstruct the mesh in a unit cube centered around origin by mapping [0, gridSize-1] -> -> alpha = [0, 1] -> lerp(lowerCornerPos, upperCornerPos, alpha)
-	vec3 cornerPos0 = mix(pushConstants.lowerCornerPos, pushConstants.upperCornerPos, vec3(cornerIdx0) / vec3(pushConstants.mcSettings.gridSize - 1u));
-	vec3 cornerPos1 = mix(pushConstants.lowerCornerPos, pushConstants.upperCornerPos, vec3(cornerIdx1) / vec3(pushConstants.mcSettings.gridSize - 1u));
+	// Reconstruct the mesh in a unit cube centered around origin by mapping idx -> alpha = [0, 1] -> lerp(lowerCornerPos, upperCornerPos, alpha)
+	// cornerIdx0: [0, gridSize-1], cornerIdx1 = [1, gridSize]. So, the range [0, gridSize] covers lowerCorner to upperCorner (each idx is top-left-back corner of the voxel so + 1 gives the correct size)
+	vec3 cornerPos0 = mix(pushConstants.lowerCornerPos, pushConstants.upperCornerPos, vec3(cornerIdx0) / vec3(pushConstants.mcSettings.gridSize));
+	vec3 cornerPos1 = mix(pushConstants.lowerCornerPos, pushConstants.upperCornerPos, vec3(cornerIdx1) / vec3(pushConstants.mcSettings.gridSize));
 
 	// Output up to 12 vertices, one lane per vertex
 	if (threadID < uint(marchingCubesLookupTable[index].VertexCount))
