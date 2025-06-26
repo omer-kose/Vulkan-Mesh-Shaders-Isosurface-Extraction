@@ -433,10 +433,31 @@ AllocatedBuffer VulkanEngine::createAndUploadGPUBuffer(size_t allocSize, VkBuffe
     return newBuffer;
 }
 
+AllocatedBuffer VulkanEngine::downloadGPUBuffer(VkBuffer gpuBuffer, size_t allocSize, size_t srcOffset, size_t dstOffset)
+{
+    AllocatedBuffer cpuBuffer = createBuffer(allocSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
+
+    immediateSubmit([&](VkCommandBuffer cmd) {
+        VkBufferCopy copy{};
+        copy.dstOffset = dstOffset;
+        copy.srcOffset = srcOffset;
+        copy.size = allocSize;
+
+        vkCmdCopyBuffer(cmd, gpuBuffer, cpuBuffer.buffer, 1, &copy);
+    });
+
+    return cpuBuffer;
+}
+
 VkDeviceAddress VulkanEngine::getBufferDeviceAddress(VkBuffer buffer)
 {
     VkBufferDeviceAddressInfo deviceAddressInfo{ .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .buffer = buffer };
     return vkGetBufferDeviceAddress(device, &deviceAddressInfo);
+}
+
+void* VulkanEngine::getMappedStagingBufferData(const AllocatedBuffer& buffer)
+{
+    return buffer.allocation->GetMappedData();
 }
 
 void VulkanEngine::destroyBuffer(const AllocatedBuffer& buffer)
@@ -672,6 +693,10 @@ void VulkanEngine::m_initVulkan()
     features12.uniformAndStorageBuffer8BitAccess = true;
     features12.scalarBlockLayout = true;
 
+    // Vulkan 1.0 features
+    VkPhysicalDeviceFeatures features{};
+    features.wideLines = true;
+
     VkPhysicalDeviceMeshShaderFeaturesEXT meshShaderFeatures{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT };
     meshShaderFeatures.taskShader = true;
     meshShaderFeatures.meshShader = true;
@@ -682,6 +707,7 @@ void VulkanEngine::m_initVulkan()
         .set_minimum_version(1, 3)
         .set_required_features_13(features13)
         .set_required_features_12(features12)
+        .set_required_features(features)
         .add_required_extension(VK_EXT_MESH_SHADER_EXTENSION_NAME)
         .add_required_extension_features(meshShaderFeatures)
         .set_surface(surface)
@@ -956,12 +982,14 @@ void VulkanEngine::m_initPasses()
 {
     MarchingCubesPass::Init(this);
     CircleGridPlanePass::Init(this);
+    ChunkVisualizationPass::Init(this);
 }
 
 void VulkanEngine::m_clearPassResources()
 {
     MarchingCubesPass::ClearResources(this);
     CircleGridPlanePass::ClearResources(this);
+    ChunkVisualizationPass::ClearResources(this);
 }
 
 void VulkanEngine::m_initMaterialLayouts()
@@ -1126,17 +1154,23 @@ void VulkanEngine::m_initGlobalSceneBuffer()
 void VulkanEngine::m_initSceneInformation()
 {
     // Harcoding the scene names. 
-    sceneNames = { "CThead" };
+    sceneNames = { "CThead", "CTheadChunks" };
     selectedSceneID = 0;
     loadScene(selectedSceneID);
 }
 
 void VulkanEngine::loadScene(uint32_t sceneID)
 {
+    // Make sure that GPU is done with the operations with the existing scene
+    vkDeviceWaitIdle(device);
     switch(sceneID)
     {
         case 0:
             activeScene = std::make_unique<CTheadScene>();
+            activeScene->load(this);
+            break;
+        case 1:
+            activeScene = std::make_unique<CTheadChunksScene>();
             activeScene->load(this);
             break;
         default:

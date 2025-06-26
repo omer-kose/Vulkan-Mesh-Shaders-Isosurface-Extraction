@@ -1,0 +1,343 @@
+#include "CTheadChunksScene.h"
+
+#include <Core/vk_engine.h>
+#include <Core/vk_initializers.h>
+#include <Core/vk_pipelines.h>
+
+#include <fstream>
+
+#include "imgui.h"
+#include "imgui_impl_sdl2.h"
+#include "imgui_impl_vulkan.h"
+
+#include <glm/gtx/transform.hpp>
+
+void insertTransferToMeshShaderBarrier(
+    VkCommandBuffer commandBuffer,
+    VkBuffer buffer,
+    VkDeviceSize offset = 0,
+    VkDeviceSize size = VK_WHOLE_SIZE
+)
+{
+    VkBufferMemoryBarrier bufferBarrier = {
+        .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+        .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+        .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .buffer = buffer,
+        .offset = offset,
+        .size = size
+    };
+
+    vkCmdPipelineBarrier(
+        commandBuffer,
+        VK_PIPELINE_STAGE_TRANSFER_BIT,          // Source: Transfer
+        VK_PIPELINE_STAGE_MESH_SHADER_BIT_EXT,    // Dest: Mesh shader
+        0,
+        0, nullptr,       // No memory barriers
+        1, &bufferBarrier,
+        0, nullptr
+    );
+}
+
+void insertMeshShaderToTransferBarrier(
+    VkCommandBuffer commandBuffer,
+    VkBuffer buffer,
+    VkDeviceSize offset = 0,
+    VkDeviceSize size = VK_WHOLE_SIZE
+)
+{
+    VkBufferMemoryBarrier bufferBarrier = {
+        .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+        .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+        .dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .buffer = buffer,
+        .offset = offset,
+        .size = size
+    };
+
+    vkCmdPipelineBarrier(
+        commandBuffer,
+        VK_PIPELINE_STAGE_MESH_SHADER_BIT_EXT,    // Source: Mesh shader
+        VK_PIPELINE_STAGE_TRANSFER_BIT,           // Dest: Transfer
+        0,
+        0, nullptr,       // No memory barriers
+        1, &bufferBarrier,
+        0, nullptr
+    );
+}
+
+void CTheadChunksScene::load(VulkanEngine* engine)
+{
+    pEngine = engine;
+    /*
+         Load CT Head data. It is given in bytes. Format is 16-bit integers where two consecutive bytes make up one binary integer.
+         The loading procedure is:
+         1- Read in the bytes
+         2- Dispatch a compute shader to convert: unsigned short -> float where
+    */
+    // Open the file with the cursor at the end
+    std::ifstream file("../../assets/CThead/CThead.bytes", std::ios::ate | std::ios::binary);
+
+    if(!file.is_open())
+    {
+        fmt::println("Error when loading CThead data");
+        return;
+    }
+
+    // As the cursor is already at the end, we can directly asses the byte size of the file
+    size_t fileSize = (size_t)file.tellg();
+
+    // Store the shader code
+    std::vector<char> buffer(fileSize);
+
+    // Put the cursor at the beginning
+    file.seekg(0);
+
+    // Load the entire file into the buffer (read() reads the file byte by byte)
+    file.read(buffer.data(), fileSize);
+
+    // We are done with the file
+    file.close();
+
+    glm::uvec3 gridSize = glm::uvec3(256, 256, 113); // hardcoded by data
+
+    // Create the temp compute shader pipeline
+    struct VolumeDataConverterPushConstants
+    {
+        glm::uvec3 gridSize;
+        VkDeviceAddress sourceBufferAddress;
+        VkDeviceAddress voxelBufferAddress;
+    };
+
+    VolumeDataConverterPushConstants converterPC;
+    converterPC.gridSize = gridSize;
+    size_t voxelBufferSize = converterPC.gridSize.x * converterPC.gridSize.y * converterPC.gridSize.z * sizeof(float);
+
+    // Load the source data into GPU and fetch the address
+    AllocatedBuffer sourceBuffer = pEngine->createAndUploadGPUBuffer(fileSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, buffer.data());
+    converterPC.sourceBufferAddress = pEngine->getBufferDeviceAddress(sourceBuffer.buffer);
+
+    // Create the voxel buffer that will be written on by the compute kernel and fetch the address
+    AllocatedBuffer voxelBuffer = pEngine->createBuffer(voxelBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+    converterPC.voxelBufferAddress = pEngine->getBufferDeviceAddress(voxelBuffer.buffer);
+
+    // Create the compute pipeline
+    VkPipelineLayoutCreateInfo converterPipelineLayoutInfo{ .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO, .pNext = nullptr };
+    VkPushConstantRange converterPCRange{ .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .offset = 0, .size = sizeof(VolumeDataConverterPushConstants) };
+    converterPipelineLayoutInfo.pushConstantRangeCount = 1;
+    converterPipelineLayoutInfo.pPushConstantRanges = &converterPCRange;
+
+    VkPipelineLayout converterPipelineLayout;
+    VK_CHECK(vkCreatePipelineLayout(pEngine->device, &converterPipelineLayoutInfo, nullptr, &converterPipelineLayout));
+    VkShaderModule converterComputeShader;
+    if(!vkutil::loadShaderModule(pEngine->device, "../../shaders/glsl/volume_data_convert/volume_data_convert_comp.spv", &converterComputeShader))
+    {
+        fmt::println("Volume Data Converter Compute Shader could not be loaded!");
+    }
+
+    VkPipelineShaderStageCreateInfo converterShaderStageInfo = vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_COMPUTE_BIT, converterComputeShader);
+    VkComputePipelineCreateInfo converterPipelineInfo = { .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO, .pNext = nullptr };
+    converterPipelineInfo.layout = converterPipelineLayout;
+    converterPipelineInfo.stage = converterShaderStageInfo;
+
+    VkPipeline converterPipeline;
+    VK_CHECK(vkCreateComputePipelines(pEngine->device, VK_NULL_HANDLE, 1, &converterPipelineInfo, nullptr, &converterPipeline));
+
+    auto ceilDiv = [](unsigned int x, unsigned int y) { return (x + y - 1) / y; };
+    // Immediate dispatch the converter kernel
+    pEngine->immediateSubmit([&](VkCommandBuffer cmd) {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, converterPipeline);
+        vkCmdPushConstants(cmd, converterPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(VolumeDataConverterPushConstants), &converterPC);
+
+        vkCmdDispatch(cmd, ceilDiv(converterPC.gridSize.x, 8u), ceilDiv(converterPC.gridSize.y, 8u), ceilDiv(converterPC.gridSize.z, 8u));
+    });
+
+    // Delete the temporary resources
+    vkDestroyPipelineLayout(pEngine->device, converterPipelineLayout, nullptr);
+    vkDestroyPipeline(pEngine->device, converterPipeline, nullptr);
+    vkDestroyShaderModule(pEngine->device, converterComputeShader, nullptr);
+    pEngine->destroyBuffer(sourceBuffer);
+
+    // Download the loaded and converted grid back to extract chunks
+    std::vector<float> gridData(gridSize.x * gridSize.y * gridSize.z);
+    AllocatedBuffer voxelBufferCPU = pEngine->downloadGPUBuffer(voxelBuffer.buffer, voxelBufferSize);
+    float* pGridData = (float*)pEngine->getMappedStagingBufferData(voxelBufferCPU);
+    memcpy(gridData.data(), pGridData, voxelBufferSize);
+    pEngine->destroyBuffer(voxelBuffer);
+    pEngine->destroyBuffer(voxelBufferCPU);
+
+    // Create the chunked version of the grid
+    glm::uvec3 chunkSize = glm::uvec3(32, 32, 32);
+    chunkedVolumeData = std::make_unique<ChunkedVolumeData>(pEngine, gridData, glm::vec3(gridSize.x, gridSize.z, gridSize.y), chunkSize, glm::vec3(-0.5f), glm::vec3(0.5f));
+
+    // Allocate the chunk buffer on GPU
+    numChunksInGpu = 32;
+    size_t voxelChunksBufferSize = numChunksInGpu * (chunkSize.x + 2) * (chunkSize.y + 2) * (chunkSize.z + 2) * sizeof(float);
+    voxelChunksBuffer = pEngine->createBuffer(voxelChunksBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+    voxelChunksBufferBaseAddress = pEngine->getBufferDeviceAddress(voxelChunksBuffer.buffer);
+
+    // Set MC Settings
+    mcSettings.gridSize = chunkSize; // Grid is a single chunk for each mesh shader dispatch.
+    mcSettings.shellSize = chunkSize + 2u;
+    mcSettings.isoValue = 0.5f;
+
+    MarchingCubesPass::UpdateMCSettings(mcSettings);
+
+    // Set Grid Plane Pass Settings
+    CircleGridPlanePass::SetPlaneHeight(-0.1f);
+
+    // Prepare Chunk Visualization
+    createChunkVisualizationBuffer(chunkedVolumeData->getChunks());
+    ChunkVisualizationPass::SetChunkBufferDeviceAddress(chunkVisualizationBufferAddress);
+    ChunkVisualizationPass::SetInputIsoValue(mcSettings.isoValue);
+
+    // Set the camera
+    mainCamera = Camera(glm::vec3(-2.0f, 0.0f, 2.0f), 0.0f, -45.0f);
+    mainCamera.setSpeed(0.02f);
+
+    // Set attachment clear color
+    pEngine->setColorAttachmentClearColor(VkClearValue{ 0.6f, 0.9f, 1.0f, 1.0f });
+}
+
+void CTheadChunksScene::processSDLEvents(SDL_Event& e)
+{
+    mainCamera.processSDLEvent(e);
+}
+
+void CTheadChunksScene::handleUI()
+{
+    ImGui::Begin("Marching Cubes Parameters");
+    ImGui::SliderFloat("Iso Value", &mcSettings.isoValue, 0.0f, 1.0f);
+    ImGui::Checkbox("Show Chunks", &showChunks);
+    ImGui::End();
+}
+
+void CTheadChunksScene::update()
+{
+    mainCamera.update();
+
+    sceneData.view = mainCamera.getViewMatrix();
+
+    VkExtent2D windowExtent = pEngine->getWindowExtent();
+    // camera projection
+    sceneData.proj = glm::perspectiveRH_ZO(glm::radians(45.f), (float)windowExtent.width / (float)windowExtent.height, 0.1f, 10000.f);
+
+    // invert the Y direction on projection matrix so that we are more similar
+    // to opengl and gltf axis
+    sceneData.proj[1][1] *= -1;
+    sceneData.viewproj = sceneData.proj * sceneData.view;
+
+    //some default lighting parameters
+    sceneData.ambientColor = glm::vec4(0.1f);
+    sceneData.sunlightColor = glm::vec4(1.0f);
+    glm::vec3 directionalLightDir = glm::normalize(glm::vec3(0.0f, -1.0f, -0.5f));
+    sceneData.sunlightDirection = glm::vec4(directionalLightDir, 1.0f);
+
+    // Update the MC params (cheap operation but could be checked if there is any change)
+    MarchingCubesPass::UpdateMCSettings(mcSettings);
+
+    ChunkVisualizationPass::SetInputIsoValue(mcSettings.isoValue);
+}
+
+void CTheadChunksScene::drawFrame(VkCommandBuffer cmd)
+{
+    CircleGridPlanePass::Execute(pEngine, cmd);
+    if(showChunks)
+    {
+        ChunkVisualizationPass::Execute(pEngine, cmd, chunkedVolumeData->getNumChunksFlat(), 3.0f);
+    }
+    
+    // Fetch the chunks that contain the input iso-value in range
+    std::vector<VolumeChunk*> renderChunks = chunkedVolumeData->query(mcSettings.isoValue);
+    int numRenderChunks = renderChunks.size();
+    int numBatches = (numRenderChunks + numChunksInGpu - 1) / numChunksInGpu;
+    // Precompute the values that will be needed for buffer upload
+    VkBuffer chunksStagingBuffer = chunkedVolumeData->getStagingBuffer();
+    glm::uvec3 chunkSize = chunkedVolumeData->getChunkSize();
+    size_t chunkSizeInBytes = (chunkSize.x + 2) * (chunkSize.y + 2) * (chunkSize.z + 2) * sizeof(float);
+    std::vector<VkBufferCopy> copyRegions(numChunksInGpu); // allocating the maximum size will be reused by all the batches
+
+    // Vulkan strictly forbids transfer operations in a render-pass so, I will end the render-pass before each transfer and begin after the operation. The contents of the drawImage should not be cleared.
+    VkRenderingAttachmentInfo colorAttachment = vkinit::attachment_info(pEngine->drawImage.imageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    VkRenderingAttachmentInfo depthAttachment = vkinit::depth_attachment_info_preserve(pEngine->depthImage.imageView, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
+
+    VkRenderingInfo renderInfo = vkinit::rendering_info(pEngine->drawExtent, &colorAttachment, &depthAttachment);
+
+    for(int i = 0; i < numBatches; ++i)
+    {
+        int firstChunkIdx = i * numChunksInGpu;
+        int numChunksToBeProcessed = std::min(numRenderChunks, (int)numChunksInGpu);
+        
+        vkCmdEndRendering(cmd);
+
+        // Upload the chunks in the batch
+        for(int c = 0; c < numChunksToBeProcessed; ++c)
+        {
+            VkBufferCopy copy{};
+            copy.dstOffset = c * chunkSizeInBytes;
+            copy.srcOffset = renderChunks[firstChunkIdx + c]->stagingBufferOffset;
+            copy.size = chunkSizeInBytes;
+            copyRegions[c] = copy;
+        }
+        vkCmdCopyBuffer(cmd, chunksStagingBuffer, voxelChunksBuffer.buffer, numChunksToBeProcessed, copyRegions.data());
+
+        // Pipeline Barrier between buffer transfer and mesh shader dispatch
+        insertTransferToMeshShaderBarrier(cmd, voxelChunksBuffer.buffer);
+
+        vkCmdBeginRendering(cmd, &renderInfo);
+
+        // Dispatch the mesh shaders for each chunk
+        for(int c = 0; c < numChunksToBeProcessed; ++c)
+        {
+            MarchingCubesPass::SetVoxelBufferDeviceAddress(voxelChunksBufferBaseAddress + c * chunkSizeInBytes);
+            MarchingCubesPass::SetGridCornerPositions(renderChunks[firstChunkIdx + c]->lowerCornerPos, renderChunks[firstChunkIdx + c]->upperCornerPos);
+            MarchingCubesPass::Execute(pEngine, cmd);
+        }
+
+        vkCmdEndRendering(cmd);
+
+        // Pipeline Barrier between mesh shader dispatch and the next buffer transfer
+        insertMeshShaderToTransferBarrier(cmd, voxelChunksBuffer.buffer);
+        vkCmdBeginRendering(cmd, &renderInfo);
+
+        numRenderChunks -= numChunksInGpu;
+    }
+}
+
+CTheadChunksScene::~CTheadChunksScene()
+{
+    pEngine->destroyBuffer(voxelChunksBuffer);
+    pEngine->destroyBuffer(chunkVisualizationBuffer);
+}
+
+void CTheadChunksScene::createChunkVisualizationBuffer(const std::vector<VolumeChunk>& chunks)
+{
+    struct ChunkVisInformation
+    {
+        glm::vec3 lowerCornerPos;
+        glm::vec3 upperCornerPos;
+        float minIsoValue;
+        float maxIsoValue;
+    };
+
+    size_t numChunks = chunks.size();
+    size_t stagingBufferSize = numChunks * sizeof(ChunkVisInformation);
+    std::vector<ChunkVisInformation> chunkVisInfo(numChunks);
+    // Fill in the chunk visualization info
+    for(size_t i = 0; i < numChunks; ++i)
+    {
+        const VolumeChunk& chunk = chunks[i];
+        chunkVisInfo[i].lowerCornerPos = chunk.lowerCornerPos;
+        chunkVisInfo[i].upperCornerPos = chunk.upperCornerPos;
+        chunkVisInfo[i].minIsoValue = chunk.minIsoValue;
+        chunkVisInfo[i].maxIsoValue = chunk.maxIsoValue;
+    }
+
+    // Create the Chunk Visualization GPU buffer from the staging buffer
+    chunkVisualizationBuffer = pEngine->createAndUploadGPUBuffer(stagingBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, chunkVisInfo.data());
+    chunkVisualizationBufferAddress = pEngine->getBufferDeviceAddress(chunkVisualizationBuffer.buffer);
+}

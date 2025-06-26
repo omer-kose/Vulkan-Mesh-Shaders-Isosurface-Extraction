@@ -17,10 +17,11 @@ layout(set = 0, binding = 0, scalar) uniform SceneData
 #define BLOCK_PLUS_1 (BLOCK_SIZE + 1)  // N+1 samples needed for N cubes
 #define BLOCK_VOLUME (BLOCK_SIZE * BLOCK_SIZE * BLOCK_SIZE)
 
-// MC Settings that are sent to the gpu with the Push Constant
+// MC Settings that are sent to the gpu with the Push Constant (if using Chunks, MCSettings is the common parameter for all the chunks (MC only sees voxelBuffer assigned to it so with or without chunks the same pass is used))
 struct MCSettings
 {
 	uvec3 gridSize; // Either determined by the input data or the user if a custom SDF is used (such as a noise function)
+	uvec3 shellSize; // For chunks a shell with +2 on right-bottom-front boundaries for correct computation. For a non-chunked volume gridSize==shellSize. This is only used for fetching the data correctly with voxelValue()
 	float isoValue;
 };
 
@@ -33,9 +34,12 @@ layout(push_constant, scalar) uniform PushConstants
 {
 	MCSettings mcSettings;
 	VoxelBuffer voxelBuffer;
+	// Positional Limits of the Grid
+	vec3 lowerCornerPos;
+	vec3 upperCornerPos;
 } pushConstants;
 
-// Task shader to mesh shader I/O
+// Task shader to mesh shader 
 struct MeshletData
 {
 	uint meshletID;
@@ -45,15 +49,6 @@ struct TaskPayload
 {
 	MeshletData meshlets[64];
 };
-
-// For testing purposes:
-float field(vec3 pos)
-{
-	// Unit sphere centered in [0,1] grid
-	vec3 center = vec3(0.5);
-	float radius = 0.25;
-	return length(pos - center) - radius;
-}
 
 /*
 	Given 3D voxel idx in indices (within bounds, [0, gridSize-1]), fetches the value from the voxel buffer.
@@ -65,5 +60,5 @@ float field(vec3 pos)
 */
 float voxelValue(uvec3 idx)
 {
-	return pushConstants.voxelBuffer.voxels[idx.x + pushConstants.mcSettings.gridSize.x * (idx.y + pushConstants.mcSettings.gridSize.y * idx.z)];
+	return pushConstants.voxelBuffer.voxels[idx.x + pushConstants.mcSettings.shellSize.x * (idx.y + pushConstants.mcSettings.shellSize.y * idx.z)];
 }

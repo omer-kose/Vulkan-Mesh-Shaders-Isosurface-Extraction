@@ -41,7 +41,7 @@ void main()
 		uvec3 voxelID = uvec3(firstVoxelID_X + x, firstVoxelID_Y + y, firstVoxelID_Z + z);
 
         // Skip out-of-bounds samples
-		if(any(greaterThanEqual(voxelID, pushConstants.mcSettings.gridSize)))
+		if(any(greaterThanEqual(voxelID, pushConstants.mcSettings.shellSize)))
 		{
             values[z][y][x] = 0;  // Initialize to avoid garbage (not fetched regardless)
             continue;
@@ -62,7 +62,7 @@ void main()
 		uvec3 voxelID = uvec3(firstVoxelID_X + x, firstVoxelID_Y + y, firstVoxelID_Z + z);
 
         // Skip voxels outside the grid
-		if(any(greaterThanEqual(voxelID, pushConstants.mcSettings.gridSize))) continue;
+		if(any(greaterThanEqual(voxelID, pushConstants.mcSettings.shellSize))) continue;
 
 		// Collect the sign bits for the cube corners. If all are zeros or all ones we're either fully inside or outside
 		// the surface, so no triangles will be generated. In all other cases, the isosurface cuts through the cube somewhere.

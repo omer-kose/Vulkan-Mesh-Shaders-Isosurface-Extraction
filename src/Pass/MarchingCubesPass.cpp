@@ -118,6 +118,12 @@ void MarchingCubesPass::SetVoxelBufferDeviceAddress(const VkDeviceAddress& voxel
     PushConstants.voxelBufferDeviceAddress = voxelBufferDeviceAddress; // assigned once as the address does not change
 }
 
+void MarchingCubesPass::SetGridCornerPositions(const glm::vec3& lowerCornerPos, const glm::vec3& upperCornerPos)
+{
+    PushConstants.lowerCornerPos = lowerCornerPos;
+    PushConstants.upperCornerPos = upperCornerPos;
+}
+
 void MarchingCubesPass::ClearResources(VulkanEngine* engine)
 {
     vkDestroyPipelineLayout(engine->device, PipelineLayout, nullptr);

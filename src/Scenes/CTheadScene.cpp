@@ -97,9 +97,11 @@ void CTheadScene::load(VulkanEngine* engine)
     });
 
     mcSettings.gridSize = glm::uvec3(converterPC.gridSize.x, converterPC.gridSize.z, converterPC.gridSize.y);
+    mcSettings.shellSize = mcSettings.gridSize;
     mcSettings.isoValue = 0.5f;
 
     MarchingCubesPass::SetVoxelBufferDeviceAddress(pEngine->getBufferDeviceAddress(voxelBuffer.buffer));
+    MarchingCubesPass::SetGridCornerPositions(glm::vec3(-0.5f), glm::vec3(0.5f));
     MarchingCubesPass::UpdateMCSettings(mcSettings);;
 
     // Delete the temporary resources
@@ -110,6 +112,8 @@ void CTheadScene::load(VulkanEngine* engine)
 
     // Set the camera
     mainCamera = Camera(glm::vec3(-2.0f, 0.0f, 2.0f), 0.0f, -45.0f);
+    mainCamera.setSpeed(0.02f);
+
 
     // Set attachment clear color
     pEngine->setColorAttachmentClearColor(VkClearValue{0.6f, 0.9f, 1.0f, 1.0f});

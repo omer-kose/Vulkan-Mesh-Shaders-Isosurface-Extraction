@@ -5,10 +5,12 @@
 #include <Core/vk_loader.h>
 
 #include <Pass/CircleGridPlanePass.h>
+#include <Pass/ChunkVisualizationPass.h>
 #include <Pass/MarchingCubesPassSDF.h>
 #include <Pass/MarchingCubesPass.h>
 
 #include <Scenes/CTheadScene.h>
+#include <Scenes/CTheadChunksScene.h>
 
 struct DeletionQueue
 {
@@ -115,8 +117,10 @@ public:
 	// Engine utilities (TODO: For the time being most of the stuff are directly open to outside but I will be slowly hiding them)
 	AllocatedBuffer createBuffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage);
 	// Allocates a buffer on local device memory and uploads the given data using a stage buffer
-	AllocatedBuffer createAndUploadGPUBuffer(size_t allocSize, VkBufferUsageFlags usage, const void* data, size_t srcOffset = 0, size_t dstOffset=0);
+	AllocatedBuffer createAndUploadGPUBuffer(size_t allocSize, VkBufferUsageFlags usage, const void* data, size_t srcOffset = 0, size_t dstOffset = 0);
+	AllocatedBuffer downloadGPUBuffer(VkBuffer gpuBuffer, size_t allocSize, size_t srcOffset = 0, size_t dstOffset=0);
 	VkDeviceAddress getBufferDeviceAddress(VkBuffer buffer);
+	void* getMappedStagingBufferData(const AllocatedBuffer& buffer);
 	void destroyBuffer(const AllocatedBuffer& buffer);
 
 	AllocatedImage createImage(VkExtent3D imageExtent, VkFormat format, VkImageUsageFlags usage, bool mipMapped = false);
