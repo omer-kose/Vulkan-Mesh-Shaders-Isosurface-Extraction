@@ -85,6 +85,16 @@ VkBuffer ChunkedVolumeData::getStagingBuffer() const
 	return chunksStagingBuffer.buffer;
 }
 
+size_t ChunkedVolumeData::getTotalNumPointsPerChunk() const
+{
+	return (chunkSize.x + 2) * (chunkSize.y + 2) * (chunkSize.z + 2);
+}
+
+glm::uvec3 ChunkedVolumeData::getShellSize() const
+{
+	return chunkSize + 2u;
+}
+
 const std::vector<VolumeChunk>& ChunkedVolumeData::getChunks() const
 {
 	return chunks;

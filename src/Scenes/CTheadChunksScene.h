@@ -19,6 +19,7 @@ public:
 	virtual ~CTheadChunksScene();
 private:
 	void createChunkVisualizationBuffer(const std::vector<VolumeChunk>& chunks);
+	std::pair<std::vector<float>, glm::uvec3> loadGridData() const;
 private:
 	MarchingCubesPass::MCSettings mcSettings; // Keep track of settings to be able to modify it via GUI and update once before the render
 	std::unique_ptr<ChunkedVolumeData> chunkedVolumeData;

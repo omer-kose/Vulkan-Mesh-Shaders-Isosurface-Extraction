@@ -73,102 +73,9 @@ void insertMeshShaderToTransferBarrier(
 void CTheadChunksScene::load(VulkanEngine* engine)
 {
     pEngine = engine;
-    /*
-         Load CT Head data. It is given in bytes. Format is 16-bit integers where two consecutive bytes make up one binary integer.
-         The loading procedure is:
-         1- Read in the bytes
-         2- Dispatch a compute shader to convert: unsigned short -> float where
-    */
-    // Open the file with the cursor at the end
-    std::ifstream file("../../assets/CThead/CThead.bytes", std::ios::ate | std::ios::binary);
-
-    if(!file.is_open())
-    {
-        fmt::println("Error when loading CThead data");
-        return;
-    }
-
-    // As the cursor is already at the end, we can directly asses the byte size of the file
-    size_t fileSize = (size_t)file.tellg();
-
-    // Store the shader code
-    std::vector<char> buffer(fileSize);
-
-    // Put the cursor at the beginning
-    file.seekg(0);
-
-    // Load the entire file into the buffer (read() reads the file byte by byte)
-    file.read(buffer.data(), fileSize);
-
-    // We are done with the file
-    file.close();
-
-    glm::uvec3 gridSize = glm::uvec3(256, 256, 113); // hardcoded by data
-
-    // Create the temp compute shader pipeline
-    struct VolumeDataConverterPushConstants
-    {
-        glm::uvec3 gridSize;
-        VkDeviceAddress sourceBufferAddress;
-        VkDeviceAddress voxelBufferAddress;
-    };
-
-    VolumeDataConverterPushConstants converterPC;
-    converterPC.gridSize = gridSize;
-    size_t voxelBufferSize = converterPC.gridSize.x * converterPC.gridSize.y * converterPC.gridSize.z * sizeof(float);
-
-    // Load the source data into GPU and fetch the address
-    AllocatedBuffer sourceBuffer = pEngine->createAndUploadGPUBuffer(fileSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, buffer.data());
-    converterPC.sourceBufferAddress = pEngine->getBufferDeviceAddress(sourceBuffer.buffer);
-
-    // Create the voxel buffer that will be written on by the compute kernel and fetch the address
-    AllocatedBuffer voxelBuffer = pEngine->createBuffer(voxelBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
-    converterPC.voxelBufferAddress = pEngine->getBufferDeviceAddress(voxelBuffer.buffer);
-
-    // Create the compute pipeline
-    VkPipelineLayoutCreateInfo converterPipelineLayoutInfo{ .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO, .pNext = nullptr };
-    VkPushConstantRange converterPCRange{ .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .offset = 0, .size = sizeof(VolumeDataConverterPushConstants) };
-    converterPipelineLayoutInfo.pushConstantRangeCount = 1;
-    converterPipelineLayoutInfo.pPushConstantRanges = &converterPCRange;
-
-    VkPipelineLayout converterPipelineLayout;
-    VK_CHECK(vkCreatePipelineLayout(pEngine->device, &converterPipelineLayoutInfo, nullptr, &converterPipelineLayout));
-    VkShaderModule converterComputeShader;
-    if(!vkutil::loadShaderModule(pEngine->device, "../../shaders/glsl/volume_data_convert/volume_data_convert_comp.spv", &converterComputeShader))
-    {
-        fmt::println("Volume Data Converter Compute Shader could not be loaded!");
-    }
-
-    VkPipelineShaderStageCreateInfo converterShaderStageInfo = vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_COMPUTE_BIT, converterComputeShader);
-    VkComputePipelineCreateInfo converterPipelineInfo = { .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO, .pNext = nullptr };
-    converterPipelineInfo.layout = converterPipelineLayout;
-    converterPipelineInfo.stage = converterShaderStageInfo;
-
-    VkPipeline converterPipeline;
-    VK_CHECK(vkCreateComputePipelines(pEngine->device, VK_NULL_HANDLE, 1, &converterPipelineInfo, nullptr, &converterPipeline));
-
-    auto ceilDiv = [](unsigned int x, unsigned int y) { return (x + y - 1) / y; };
-    // Immediate dispatch the converter kernel
-    pEngine->immediateSubmit([&](VkCommandBuffer cmd) {
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, converterPipeline);
-        vkCmdPushConstants(cmd, converterPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(VolumeDataConverterPushConstants), &converterPC);
-
-        vkCmdDispatch(cmd, ceilDiv(converterPC.gridSize.x, 8u), ceilDiv(converterPC.gridSize.y, 8u), ceilDiv(converterPC.gridSize.z, 8u));
-    });
-
-    // Delete the temporary resources
-    vkDestroyPipelineLayout(pEngine->device, converterPipelineLayout, nullptr);
-    vkDestroyPipeline(pEngine->device, converterPipeline, nullptr);
-    vkDestroyShaderModule(pEngine->device, converterComputeShader, nullptr);
-    pEngine->destroyBuffer(sourceBuffer);
-
-    // Download the loaded and converted grid back to extract chunks
-    std::vector<float> gridData(gridSize.x * gridSize.y * gridSize.z);
-    AllocatedBuffer voxelBufferCPU = pEngine->downloadGPUBuffer(voxelBuffer.buffer, voxelBufferSize);
-    float* pGridData = (float*)pEngine->getMappedStagingBufferData(voxelBufferCPU);
-    memcpy(gridData.data(), pGridData, voxelBufferSize);
-    pEngine->destroyBuffer(voxelBuffer);
-    pEngine->destroyBuffer(voxelBufferCPU);
+ 
+    std::vector<float> gridData; glm::uvec3 gridSize;
+    std::tie(gridData, gridSize) = loadGridData();
 
     // Create the chunked version of the grid
     glm::uvec3 chunkSize = glm::uvec3(32, 32, 32);
@@ -176,13 +83,13 @@ void CTheadChunksScene::load(VulkanEngine* engine)
 
     // Allocate the chunk buffer on GPU
     numChunksInGpu = 32;
-    size_t voxelChunksBufferSize = numChunksInGpu * (chunkSize.x + 2) * (chunkSize.y + 2) * (chunkSize.z + 2) * sizeof(float);
+    size_t voxelChunksBufferSize = numChunksInGpu * chunkedVolumeData->getTotalNumPointsPerChunk() * sizeof(float);
     voxelChunksBuffer = pEngine->createBuffer(voxelChunksBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
     voxelChunksBufferBaseAddress = pEngine->getBufferDeviceAddress(voxelChunksBuffer.buffer);
 
     // Set MC Settings
     mcSettings.gridSize = chunkSize; // Grid is a single chunk for each mesh shader dispatch.
-    mcSettings.shellSize = chunkSize + 2u;
+    mcSettings.shellSize = chunkedVolumeData->getShellSize();
     mcSettings.isoValue = 0.5f;
 
     MarchingCubesPass::UpdateMCSettings(mcSettings);
@@ -258,7 +165,7 @@ void CTheadChunksScene::drawFrame(VkCommandBuffer cmd)
     // Precompute the values that will be needed for buffer upload
     VkBuffer chunksStagingBuffer = chunkedVolumeData->getStagingBuffer();
     glm::uvec3 chunkSize = chunkedVolumeData->getChunkSize();
-    size_t chunkSizeInBytes = (chunkSize.x + 2) * (chunkSize.y + 2) * (chunkSize.z + 2) * sizeof(float);
+    size_t chunkSizeInBytes = chunkedVolumeData->getTotalNumPointsPerChunk() * sizeof(float);
     std::vector<VkBufferCopy> copyRegions(numChunksInGpu); // allocating the maximum size will be reused by all the batches
 
     // Vulkan strictly forbids transfer operations in a render-pass so, I will end the render-pass before each transfer and begin after the operation. The contents of the drawImage should not be cleared.
@@ -298,11 +205,13 @@ void CTheadChunksScene::drawFrame(VkCommandBuffer cmd)
             MarchingCubesPass::Execute(pEngine, cmd);
         }
 
-        vkCmdEndRendering(cmd);
-
         // Pipeline Barrier between mesh shader dispatch and the next buffer transfer
-        insertMeshShaderToTransferBarrier(cmd, voxelChunksBuffer.buffer);
-        vkCmdBeginRendering(cmd, &renderInfo);
+        if(i != numBatches - 1)
+        {
+            vkCmdEndRendering(cmd);
+            insertMeshShaderToTransferBarrier(cmd, voxelChunksBuffer.buffer);
+            vkCmdBeginRendering(cmd, &renderInfo);
+        }
 
         numRenderChunks -= numChunksInGpu;
     }
@@ -340,4 +249,106 @@ void CTheadChunksScene::createChunkVisualizationBuffer(const std::vector<VolumeC
     // Create the Chunk Visualization GPU buffer from the staging buffer
     chunkVisualizationBuffer = pEngine->createAndUploadGPUBuffer(stagingBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, chunkVisInfo.data());
     chunkVisualizationBufferAddress = pEngine->getBufferDeviceAddress(chunkVisualizationBuffer.buffer);
+}
+
+std::pair<std::vector<float>, glm::uvec3> CTheadChunksScene::loadGridData() const
+{
+    /*
+         Load CT Head data. It is given in bytes. Format is 16-bit integers where two consecutive bytes make up one binary integer.
+         The loading procedure is:
+         1- Read in the bytes
+         2- Dispatch a compute shader to convert: unsigned short -> float where
+    */
+    // Open the file with the cursor at the end
+    std::ifstream file("../../assets/CThead/CThead.bytes", std::ios::ate | std::ios::binary);
+
+    if(!file.is_open())
+    {
+        fmt::println("Error when loading CThead data");
+        return {};
+    }
+
+    // As the cursor is already at the end, we can directly asses the byte size of the file
+    size_t fileSize = (size_t)file.tellg();
+
+    // Store the shader code
+    std::vector<char> buffer(fileSize);
+
+    // Put the cursor at the beginning
+    file.seekg(0);
+
+    // Load the entire file into the buffer (read() reads the file byte by byte)
+    file.read(buffer.data(), fileSize);
+
+    // We are done with the file
+    file.close();
+
+    glm::uvec3 gridSize = glm::uvec3(256, 256, 113); // hardcoded by data
+
+    // Create the temp compute shader pipeline
+    struct VolumeDataConverterPushConstants
+    {
+        glm::uvec3 gridSize;
+        VkDeviceAddress sourceBufferAddress;
+        VkDeviceAddress voxelBufferAddress;
+    };
+
+    VolumeDataConverterPushConstants converterPC;
+    converterPC.gridSize = gridSize;
+    size_t voxelBufferSize = converterPC.gridSize.x * converterPC.gridSize.y * converterPC.gridSize.z * sizeof(float);
+
+    // Load the source data into GPU and fetch the address
+    AllocatedBuffer sourceBuffer = pEngine->createAndUploadGPUBuffer(fileSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, buffer.data());
+    converterPC.sourceBufferAddress = pEngine->getBufferDeviceAddress(sourceBuffer.buffer);
+
+    // Create the voxel buffer that will be written on by the compute kernel and fetch the address
+    AllocatedBuffer voxelBuffer = pEngine->createBuffer(voxelBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+    converterPC.voxelBufferAddress = pEngine->getBufferDeviceAddress(voxelBuffer.buffer);
+
+    // Create the compute pipeline
+    VkPipelineLayoutCreateInfo converterPipelineLayoutInfo{ .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO, .pNext = nullptr };
+    VkPushConstantRange converterPCRange{ .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .offset = 0, .size = sizeof(VolumeDataConverterPushConstants) };
+    converterPipelineLayoutInfo.pushConstantRangeCount = 1;
+    converterPipelineLayoutInfo.pPushConstantRanges = &converterPCRange;
+
+    VkPipelineLayout converterPipelineLayout;
+    VK_CHECK(vkCreatePipelineLayout(pEngine->device, &converterPipelineLayoutInfo, nullptr, &converterPipelineLayout));
+    VkShaderModule converterComputeShader;
+    if(!vkutil::loadShaderModule(pEngine->device, "../../shaders/glsl/volume_data_convert/volume_data_convert_comp.spv", &converterComputeShader))
+    {
+        fmt::println("Volume Data Converter Compute Shader could not be loaded!");
+    }
+
+    VkPipelineShaderStageCreateInfo converterShaderStageInfo = vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_COMPUTE_BIT, converterComputeShader);
+    VkComputePipelineCreateInfo converterPipelineInfo = { .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO, .pNext = nullptr };
+    converterPipelineInfo.layout = converterPipelineLayout;
+    converterPipelineInfo.stage = converterShaderStageInfo;
+
+    VkPipeline converterPipeline;
+    VK_CHECK(vkCreateComputePipelines(pEngine->device, VK_NULL_HANDLE, 1, &converterPipelineInfo, nullptr, &converterPipeline));
+
+    auto ceilDiv = [](unsigned int x, unsigned int y) { return (x + y - 1) / y; };
+    // Immediate dispatch the converter kernel
+    pEngine->immediateSubmit([&](VkCommandBuffer cmd) {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, converterPipeline);
+        vkCmdPushConstants(cmd, converterPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(VolumeDataConverterPushConstants), &converterPC);
+
+        vkCmdDispatch(cmd, ceilDiv(converterPC.gridSize.x, 8u), ceilDiv(converterPC.gridSize.y, 8u), ceilDiv(converterPC.gridSize.z, 8u));
+        });
+
+    // Delete the temporary resources
+    vkDestroyPipelineLayout(pEngine->device, converterPipelineLayout, nullptr);
+    vkDestroyPipeline(pEngine->device, converterPipeline, nullptr);
+    vkDestroyShaderModule(pEngine->device, converterComputeShader, nullptr);
+    pEngine->destroyBuffer(sourceBuffer);
+
+    // Download the loaded and converted grid back to extract chunks
+    std::vector<float> gridData(gridSize.x * gridSize.y * gridSize.z);
+    AllocatedBuffer voxelBufferCPU = pEngine->downloadGPUBuffer(voxelBuffer.buffer, voxelBufferSize);
+    float* pGridData = (float*)pEngine->getMappedStagingBufferData(voxelBufferCPU);
+    memcpy(gridData.data(), pGridData, voxelBufferSize);
+    pEngine->destroyBuffer(voxelBuffer);
+    pEngine->destroyBuffer(voxelBufferCPU);
+
+    return {gridData, gridSize};
 }
