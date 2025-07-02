@@ -80,6 +80,8 @@ void CTheadChunksScene::load(VulkanEngine* engine)
     // Create the chunked version of the grid
     glm::uvec3 chunkSize = glm::uvec3(32, 32, 32);
     chunkedVolumeData = std::make_unique<ChunkedVolumeData>(pEngine, gridData, glm::vec3(gridSize.x, gridSize.z, gridSize.y), chunkSize, glm::vec3(-0.5f), glm::vec3(0.5f));
+    float minVolumeIsoValue = 0.0; float maxVolumeIsoValue = 1.0f; size_t numBins = 12;
+    chunkedVolumeData->computeChunkIsoValueHistograms(minVolumeIsoValue, maxVolumeIsoValue, numBins);
 
     // Allocate the chunk buffer on GPU
     numChunksInGpu = 32;
@@ -120,6 +122,7 @@ void CTheadChunksScene::handleUI()
     ImGui::Begin("Marching Cubes Parameters");
     ImGui::SliderFloat("Iso Value", &mcSettings.isoValue, 0.0f, 1.0f);
     ImGui::Checkbox("Show Chunks", &showChunks);
+    ImGui::Checkbox("Execute Chunks Sorted", &executeChunksSorted);
     ImGui::End();
 }
 
@@ -158,63 +161,7 @@ void CTheadChunksScene::drawFrame(VkCommandBuffer cmd)
         ChunkVisualizationPass::Execute(pEngine, cmd, chunkedVolumeData->getNumChunksFlat(), 3.0f);
     }
     
-    // Fetch the chunks that contain the input iso-value in range
-    std::vector<VolumeChunk*> renderChunks = chunkedVolumeData->query(mcSettings.isoValue);
-    int numRenderChunks = renderChunks.size();
-    int numBatches = (numRenderChunks + numChunksInGpu - 1) / numChunksInGpu;
-    // Precompute the values that will be needed for buffer upload
-    VkBuffer chunksStagingBuffer = chunkedVolumeData->getStagingBuffer();
-    glm::uvec3 chunkSize = chunkedVolumeData->getChunkSize();
-    size_t chunkSizeInBytes = chunkedVolumeData->getTotalNumPointsPerChunk() * sizeof(float);
-    std::vector<VkBufferCopy> copyRegions(numChunksInGpu); // allocating the maximum size will be reused by all the batches
-
-    // Vulkan strictly forbids transfer operations in a render-pass so, I will end the render-pass before each transfer and begin after the operation. The contents of the drawImage should not be cleared.
-    VkRenderingAttachmentInfo colorAttachment = vkinit::attachment_info(pEngine->drawImage.imageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    VkRenderingAttachmentInfo depthAttachment = vkinit::depth_attachment_info_preserve(pEngine->depthImage.imageView, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
-
-    VkRenderingInfo renderInfo = vkinit::rendering_info(pEngine->drawExtent, &colorAttachment, &depthAttachment);
-
-    for(int i = 0; i < numBatches; ++i)
-    {
-        int firstChunkIdx = i * numChunksInGpu;
-        int numChunksToBeProcessed = std::min(numRenderChunks, (int)numChunksInGpu);
-        
-        vkCmdEndRendering(cmd);
-
-        // Upload the chunks in the batch
-        for(int c = 0; c < numChunksToBeProcessed; ++c)
-        {
-            VkBufferCopy copy{};
-            copy.dstOffset = c * chunkSizeInBytes;
-            copy.srcOffset = renderChunks[firstChunkIdx + c]->stagingBufferOffset;
-            copy.size = chunkSizeInBytes;
-            copyRegions[c] = copy;
-        }
-        vkCmdCopyBuffer(cmd, chunksStagingBuffer, voxelChunksBuffer.buffer, numChunksToBeProcessed, copyRegions.data());
-
-        // Pipeline Barrier between buffer transfer and mesh shader dispatch
-        insertTransferToMeshShaderBarrier(cmd, voxelChunksBuffer.buffer);
-
-        vkCmdBeginRendering(cmd, &renderInfo);
-
-        // Dispatch the mesh shaders for each chunk
-        for(int c = 0; c < numChunksToBeProcessed; ++c)
-        {
-            MarchingCubesPass::SetVoxelBufferDeviceAddress(voxelChunksBufferBaseAddress + c * chunkSizeInBytes);
-            MarchingCubesPass::SetGridCornerPositions(renderChunks[firstChunkIdx + c]->lowerCornerPos, renderChunks[firstChunkIdx + c]->upperCornerPos);
-            MarchingCubesPass::Execute(pEngine, cmd);
-        }
-
-        // Pipeline Barrier between mesh shader dispatch and the next buffer transfer
-        if(i != numBatches - 1)
-        {
-            vkCmdEndRendering(cmd);
-            insertMeshShaderToTransferBarrier(cmd, voxelChunksBuffer.buffer);
-            vkCmdBeginRendering(cmd, &renderInfo);
-        }
-
-        numRenderChunks -= numChunksInGpu;
-    }
+    executeChunksSorted ? executeMCSorted(cmd) : executeMCUnsorted(cmd);
 }
 
 CTheadChunksScene::~CTheadChunksScene()
@@ -351,4 +298,140 @@ std::pair<std::vector<float>, glm::uvec3> CTheadChunksScene::loadGridData() cons
     pEngine->destroyBuffer(voxelBufferCPU);
 
     return {gridData, gridSize};
+}
+
+void CTheadChunksScene::executeMCUnsorted(VkCommandBuffer cmd) const
+{
+    // Fetch the chunks that contain the input iso-value in range
+    std::vector<VolumeChunk*> renderChunks = chunkedVolumeData->query(mcSettings.isoValue);
+    int numRenderChunks = renderChunks.size();
+    int numBatches = (numRenderChunks + numChunksInGpu - 1) / numChunksInGpu;
+    // Precompute the values that will be needed for buffer upload
+    VkBuffer chunksStagingBuffer = chunkedVolumeData->getStagingBuffer();
+    glm::uvec3 chunkSize = chunkedVolumeData->getChunkSize();
+    size_t chunkSizeInBytes = chunkedVolumeData->getTotalNumPointsPerChunk() * sizeof(float);
+    std::vector<VkBufferCopy> copyRegions(numChunksInGpu); // allocating the maximum size will be reused by all the batches
+
+    // Vulkan strictly forbids transfer operations in a render-pass so, I will end the render-pass before each transfer and begin after the operation. The contents of the drawImage should not be cleared.
+    VkRenderingAttachmentInfo colorAttachment = vkinit::attachment_info(pEngine->drawImage.imageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    VkRenderingAttachmentInfo depthAttachment = vkinit::depth_attachment_info_preserve(pEngine->depthImage.imageView, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
+
+    VkRenderingInfo renderInfo = vkinit::rendering_info(pEngine->drawExtent, &colorAttachment, &depthAttachment);
+
+    for(int i = 0; i < numBatches; ++i)
+    {
+        int firstChunkIdx = i * numChunksInGpu;
+        int numChunksToBeProcessed = std::min(numRenderChunks, (int)numChunksInGpu);
+
+        vkCmdEndRendering(cmd);
+
+        // Upload the chunks in the batch
+        for(int c = 0; c < numChunksToBeProcessed; ++c)
+        {
+            VkBufferCopy copy{};
+            copy.dstOffset = c * chunkSizeInBytes;
+            copy.srcOffset = renderChunks[firstChunkIdx + c]->stagingBufferOffset;
+            copy.size = chunkSizeInBytes;
+            copyRegions[c] = copy;
+        }
+        vkCmdCopyBuffer(cmd, chunksStagingBuffer, voxelChunksBuffer.buffer, numChunksToBeProcessed, copyRegions.data());
+
+        // Pipeline Barrier between buffer transfer and mesh shader dispatch
+        insertTransferToMeshShaderBarrier(cmd, voxelChunksBuffer.buffer);
+
+        vkCmdBeginRendering(cmd, &renderInfo);
+
+        // Dispatch the mesh shaders for each chunk
+        for(int c = 0; c < numChunksToBeProcessed; ++c)
+        {
+            MarchingCubesPass::SetVoxelBufferDeviceAddress(voxelChunksBufferBaseAddress + c * chunkSizeInBytes);
+            MarchingCubesPass::SetGridCornerPositions(renderChunks[firstChunkIdx + c]->lowerCornerPos, renderChunks[firstChunkIdx + c]->upperCornerPos);
+            MarchingCubesPass::Execute(pEngine, cmd);
+        }
+
+        // Pipeline Barrier between mesh shader dispatch and the next buffer transfer
+        if(i != numBatches - 1)
+        {
+            vkCmdEndRendering(cmd);
+            insertMeshShaderToTransferBarrier(cmd, voxelChunksBuffer.buffer);
+            vkCmdBeginRendering(cmd, &renderInfo);
+        }
+
+        numRenderChunks -= numChunksInGpu;
+    }
+}
+
+void CTheadChunksScene::executeMCSorted(VkCommandBuffer cmd) const
+{
+    // Fetch the chunks that contain the input iso-value in range
+    std::vector<VolumeChunk*> renderChunks = chunkedVolumeData->query(mcSettings.isoValue);
+    int numRenderChunks = renderChunks.size();
+    int numBatches = (numRenderChunks + numChunksInGpu - 1) / numChunksInGpu;
+    // Precompute the values that will be needed for buffer upload
+    VkBuffer chunksStagingBuffer = chunkedVolumeData->getStagingBuffer();
+    glm::uvec3 chunkSize = chunkedVolumeData->getChunkSize();
+    size_t chunkSizeInBytes = chunkedVolumeData->getTotalNumPointsPerChunk() * sizeof(float);
+    std::vector<VkBufferCopy> copyRegions(numChunksInGpu); // allocating the maximum size will be reused by all the batches
+
+    // Sort the chunks (actually indices of them) wrt number of estimate triangles they will produce. So that, in each batch dispatch we have a more uniform execution time until the barrier
+    std::vector<uint32_t> sortedChunkIndices(renderChunks.size());
+    for(uint32_t i = 0; i < renderChunks.size(); ++i)
+    {
+        sortedChunkIndices[i] = i;
+    }
+
+    std::sort(sortedChunkIndices.begin(), sortedChunkIndices.end(), [&](uint32_t iA, uint32_t iB){
+        size_t numTrianglesA = chunkedVolumeData->estimateNumTriangles(*renderChunks[iA], mcSettings.isoValue);
+        size_t numTrianglesB = chunkedVolumeData->estimateNumTriangles(*renderChunks[iB], mcSettings.isoValue);
+
+        return numTrianglesA > numTrianglesB;
+    });
+
+    // Vulkan strictly forbids transfer operations in a render-pass so, I will end the render-pass before each transfer and begin after the operation. The contents of the drawImage should not be cleared.
+    VkRenderingAttachmentInfo colorAttachment = vkinit::attachment_info(pEngine->drawImage.imageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    VkRenderingAttachmentInfo depthAttachment = vkinit::depth_attachment_info_preserve(pEngine->depthImage.imageView, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
+
+    VkRenderingInfo renderInfo = vkinit::rendering_info(pEngine->drawExtent, &colorAttachment, &depthAttachment);
+
+    for(int i = 0; i < numBatches; ++i)
+    {
+        int firstChunkIdx = i * numChunksInGpu;
+        int numChunksToBeProcessed = std::min(numRenderChunks, (int)numChunksInGpu);
+
+        vkCmdEndRendering(cmd);
+
+        // Upload the chunks in the batch
+        for(int c = 0; c < numChunksToBeProcessed; ++c)
+        {
+            VkBufferCopy copy{};
+            copy.dstOffset = c * chunkSizeInBytes;
+            copy.srcOffset = renderChunks[sortedChunkIndices[firstChunkIdx + c]]->stagingBufferOffset;
+            copy.size = chunkSizeInBytes;
+            copyRegions[c] = copy;
+        }
+        vkCmdCopyBuffer(cmd, chunksStagingBuffer, voxelChunksBuffer.buffer, numChunksToBeProcessed, copyRegions.data());
+
+        // Pipeline Barrier between buffer transfer and mesh shader dispatch
+        insertTransferToMeshShaderBarrier(cmd, voxelChunksBuffer.buffer);
+
+        vkCmdBeginRendering(cmd, &renderInfo);
+
+        // Dispatch the mesh shaders for each chunk
+        for(int c = 0; c < numChunksToBeProcessed; ++c)
+        {
+            MarchingCubesPass::SetVoxelBufferDeviceAddress(voxelChunksBufferBaseAddress + c * chunkSizeInBytes);
+            MarchingCubesPass::SetGridCornerPositions(renderChunks[sortedChunkIndices[firstChunkIdx + c]]->lowerCornerPos, renderChunks[sortedChunkIndices[firstChunkIdx + c]]->upperCornerPos);
+            MarchingCubesPass::Execute(pEngine, cmd);
+        }
+
+        // Pipeline Barrier between mesh shader dispatch and the next buffer transfer
+        if(i != numBatches - 1)
+        {
+            vkCmdEndRendering(cmd);
+            insertMeshShaderToTransferBarrier(cmd, voxelChunksBuffer.buffer);
+            vkCmdBeginRendering(cmd, &renderInfo);
+        }
+
+        numRenderChunks -= numChunksInGpu;
+    }
 }

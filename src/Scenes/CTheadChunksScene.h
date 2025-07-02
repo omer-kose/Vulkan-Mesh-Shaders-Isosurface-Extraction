@@ -20,6 +20,8 @@ public:
 private:
 	void createChunkVisualizationBuffer(const std::vector<VolumeChunk>& chunks);
 	std::pair<std::vector<float>, glm::uvec3> loadGridData() const;
+	void executeMCUnsorted(VkCommandBuffer cmd) const;
+	void executeMCSorted(VkCommandBuffer cmd) const;
 private:
 	MarchingCubesPass::MCSettings mcSettings; // Keep track of settings to be able to modify it via GUI and update once before the render
 	std::unique_ptr<ChunkedVolumeData> chunkedVolumeData;
@@ -29,4 +31,5 @@ private:
 	VkDeviceAddress chunkVisualizationBufferAddress;
 	size_t numChunksInGpu;
 	bool showChunks = false;
+	bool executeChunksSorted = false;
 };

@@ -2,6 +2,11 @@
 
 #include <Core/vk_engine.h>
 
+#include <Pass/MarchingCubesLookup.h>
+
+#include <algorithm>
+#include <execution>
+
 ChunkedVolumeData::ChunkedVolumeData(VulkanEngine* engine, const std::vector<float>& volumeData, const glm::uvec3& gridSize_in, const glm::uvec3& chunkSize_in, const glm::vec3& gridLowerCornerPos_in, const glm::vec3& gridUpperCornerPos_in)
 	:
 	gridSize(gridSize_in),
@@ -98,6 +103,93 @@ glm::uvec3 ChunkedVolumeData::getShellSize() const
 const std::vector<VolumeChunk>& ChunkedVolumeData::getChunks() const
 {
 	return chunks;
+}
+
+void ChunkedVolumeData::computeChunkIsoValueHistograms(float minIsoValue, float maxIsoValue, size_t numBins)
+{
+	float stepSize = (maxIsoValue - minIsoValue) / (numBins - 1);
+	glm::uvec3 pointsPerChunk = chunkSize + 2u;
+
+	// Parallelize outer loop over chunks
+	std::for_each(std::execution::par, chunks.begin(), chunks.end(), [&](VolumeChunk& c)
+	{
+		size_t chunkFloatOffset = c.stagingBufferOffset / sizeof(float);
+		float* pChunk = pChunksStagingBuffer + chunkFloatOffset;
+
+		// Pre-allocate and initialize the histogram bins
+		c.isoValueHistogram.resize(numBins);
+		for(size_t b = 0; b < numBins; ++b)
+		{
+			c.isoValueHistogram[b] = { minIsoValue + b * stepSize, 0 };
+		}
+
+		float values[8];
+
+		for(size_t z = 0; z < chunkSize.z; ++z)
+		{
+			for(size_t y = 0; y < chunkSize.y; ++y)
+			{
+				for(size_t x = 0; x < chunkSize.x; ++x)
+				{
+					// Fetch voxel corner values
+					values[0] = pChunk[(x + 0) + pointsPerChunk.x * ((y + 0) + pointsPerChunk.y * (z + 0))];
+					values[1] = pChunk[(x + 1) + pointsPerChunk.x * ((y + 0) + pointsPerChunk.y * (z + 0))];
+					values[2] = pChunk[(x + 0) + pointsPerChunk.x * ((y + 1) + pointsPerChunk.y * (z + 0))];
+					values[3] = pChunk[(x + 1) + pointsPerChunk.x * ((y + 1) + pointsPerChunk.y * (z + 0))];
+					values[4] = pChunk[(x + 0) + pointsPerChunk.x * ((y + 0) + pointsPerChunk.y * (z + 1))];
+					values[5] = pChunk[(x + 1) + pointsPerChunk.x * ((y + 0) + pointsPerChunk.y * (z + 1))];
+					values[6] = pChunk[(x + 0) + pointsPerChunk.x * ((y + 1) + pointsPerChunk.y * (z + 1))];
+					values[7] = pChunk[(x + 1) + pointsPerChunk.x * ((y + 1) + pointsPerChunk.y * (z + 1))];
+
+					// Loop through bins
+					for(size_t b = 0; b < numBins; ++b)
+					{
+						float currentIsoValue = c.isoValueHistogram[b].first;
+
+						uint32_t cubeIndex = 0;
+						cubeIndex |= (values[0] >= currentIsoValue) << 0;
+						cubeIndex |= (values[1] >= currentIsoValue) << 1;
+						cubeIndex |= (values[2] >= currentIsoValue) << 2;
+						cubeIndex |= (values[3] >= currentIsoValue) << 3;
+						cubeIndex |= (values[4] >= currentIsoValue) << 4;
+						cubeIndex |= (values[5] >= currentIsoValue) << 5;
+						cubeIndex |= (values[6] >= currentIsoValue) << 6;
+						cubeIndex |= (values[7] >= currentIsoValue) << 7;
+
+						if(cubeIndex != 0 && cubeIndex != 0xFF)
+						{
+							c.isoValueHistogram[b].second += MarchingCubesLookupTable[cubeIndex].TriangleCount;
+						}
+					}
+				}
+			}
+		}
+	});
+}
+
+size_t ChunkedVolumeData::estimateNumTriangles(const VolumeChunk& chunk, float isoValue) const
+{
+	const std::vector<std::pair<float, size_t>>& h = chunk.isoValueHistogram;
+	// Find the left and right bins that input iso value falls between (the histogram itself is sorted so a binary range search is possible)
+	int left = 0;
+	int right = h.size() - 1;
+	while(right - left > 1)
+	{
+		int mid = (left + right) / 2;
+		float iso = h[mid].first;
+		if(iso < isoValue)
+		{
+			left = mid;
+		}
+		else
+		{
+			right = mid;
+		}
+	}
+
+	// Estimate by lerping and rounding
+	float alpha = (isoValue - h[left].first) / (h[right].first - h[left].first);
+	return (1.0f - alpha) * h[left].second + alpha * h[right].second;
 }
 
 ChunkedVolumeData::~ChunkedVolumeData()

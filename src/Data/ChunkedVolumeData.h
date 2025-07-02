@@ -13,6 +13,7 @@ struct VolumeChunk
 	size_t stagingBufferOffset; // offset (in bytes) in the staging buffer that holds all the chunks
 	float minIsoValue, maxIsoValue; // among all the voxels in the chunk
 	glm::vec3 lowerCornerPos, upperCornerPos; // Precomputed and stored. Could be computed on the fly as well
+	std::vector<std::pair<float, size_t>> isoValueHistogram; // holds number of triangles that would be emitted per some predefined isovalues. Will be used to sort render chunks.
 };
 
 /*
@@ -23,6 +24,7 @@ struct VolumeChunk
 class ChunkedVolumeData
 {
 public:
+	ChunkedVolumeData() = delete;
 	ChunkedVolumeData(VulkanEngine* engine, const std::vector<float>& volumeData, const glm::uvec3& gridSize_in, const glm::uvec3& chunkSize_in, const glm::vec3& gridLowerCornerPos_in, const glm::vec3& gridUpperCornerPos_in);
 	std::vector<VolumeChunk*> query(float isoValue) const;
 	glm::uvec3 getNumChunks() const;
@@ -32,6 +34,8 @@ public:
 	size_t getTotalNumPointsPerChunk() const;
 	glm::uvec3 getShellSize() const;
 	const std::vector<VolumeChunk>& getChunks() const;
+	void computeChunkIsoValueHistograms(float minIsoValue, float maxIsoValue, size_t numBins);
+	size_t estimateNumTriangles(const VolumeChunk& chunk, float isoValue) const;
 	~ChunkedVolumeData();
 private:
 	void extractChunkData(const std::vector<float>& volumeData, size_t flatChunkIndex, VolumeChunk& chunk);
