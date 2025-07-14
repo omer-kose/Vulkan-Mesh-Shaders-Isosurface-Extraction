@@ -16,7 +16,7 @@ void OrganVisualizationScene::load(VulkanEngine* engine)
 {
     pEngine = engine;
 
-    organNames = { "CThead"};
+    organNames = { "CThead", "Kidney" };
 
     loadData(0);
 
@@ -25,7 +25,7 @@ void OrganVisualizationScene::load(VulkanEngine* engine)
     mainCamera.setSpeed(0.02f);
 
     // Set attachment clear color
-    pEngine->setColorAttachmentClearColor(VkClearValue{0.6f, 0.9f, 1.0f, 1.0f});
+    pEngine->setColorAttachmentClearColor(VkClearValue{ 0.6f, 0.9f, 1.0f, 1.0f });
 
     // Set Grid Plane height
     CircleGridPlanePass::SetPlaneHeight(-0.1f);
@@ -109,13 +109,17 @@ void OrganVisualizationScene::loadData(uint32_t organID)
 
     switch(organID)
     {
-        case 0:
-            std::tie(voxelBuffer, gridSize) = loadCTheadData();
-            mcSettings.gridSize = glm::uvec3(gridSize.x, gridSize.z, gridSize.y);
-            break;
-        default:
-            fmt::println("No existing organ id is selected!");
-            break;
+    case 0:
+        std::tie(voxelBuffer, gridSize) = loadCTheadData();
+        mcSettings.gridSize = glm::uvec3(gridSize.x, gridSize.z, gridSize.y);
+        break;
+    case 1:
+        std::tie(voxelBuffer, gridSize) = loadOrganAtlasData("../../assets/organ_atlas/kidney");
+        mcSettings.gridSize = gridSize;
+        break;
+    default:
+        fmt::println("No existing organ id is selected!");
+        break;
     }
 
     mcSettings.shellSize = mcSettings.gridSize;
@@ -146,7 +150,7 @@ std::pair<AllocatedBuffer, glm::uvec3> OrganVisualizationScene::loadCTheadData()
     // As the cursor is already at the end, we can directly asses the byte size of the file
     size_t fileSize = (size_t)file.tellg();
 
-    // Store the shader code
+    // Store the data
     std::vector<char> buffer(fileSize);
 
     // Put the cursor at the beginning
@@ -209,13 +213,43 @@ std::pair<AllocatedBuffer, glm::uvec3> OrganVisualizationScene::loadCTheadData()
         vkCmdPushConstants(cmd, converterPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(VolumeDataConverterPushConstants), &converterPC);
 
         vkCmdDispatch(cmd, ceilDiv(converterPC.gridSize.x, 8u), ceilDiv(converterPC.gridSize.y, 8u), ceilDiv(converterPC.gridSize.z, 8u));
-    });
+        });
 
     // Delete the temporary resources
     vkDestroyPipelineLayout(pEngine->device, converterPipelineLayout, nullptr);
     vkDestroyPipeline(pEngine->device, converterPipeline, nullptr);
     vkDestroyShaderModule(pEngine->device, converterComputeShader, nullptr);
     pEngine->destroyBuffer(sourceBuffer);
+
+    return { voxelBuffer, gridSize };
+}
+
+std::pair<AllocatedBuffer, glm::uvec3> OrganVisualizationScene::loadOrganAtlasData(const char* organPathBase)
+{
+    // All the data in organ atlas has the same signature
+    std::string binPath = std::string(organPathBase) + ".bin";
+    std::string gridSizePath = std::string(organPathBase) + "_shape.txt";
+
+    // Load the grid size
+    glm::uvec3 gridSize;
+    std::ifstream file(gridSizePath);
+    uint32_t size; int i = 0;
+    while(file >> size)
+    {
+        gridSize[i++] = size;
+    }
+    file.close();
+
+    // Read the binary grid data
+    file.open(binPath, std::ios::ate | std::ios::binary);
+    size_t fileSize = (size_t)file.tellg();
+    std::vector<char> buffer(fileSize);
+    file.seekg(0);
+    file.read(buffer.data(), fileSize);
+    file.close();
+
+    size_t voxelBufferSize = gridSize.x * gridSize.y * gridSize.z * sizeof(float);
+    voxelBuffer = pEngine->createAndUploadGPUBuffer(voxelBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, buffer.data());
 
     return { voxelBuffer, gridSize };
 }

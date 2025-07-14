@@ -17,6 +17,7 @@ public:
 private:
 	void loadData(uint32_t organID);
 	std::pair<AllocatedBuffer, glm::uvec3> loadCTheadData() const;
+	std::pair<AllocatedBuffer, glm::uvec3> loadOrganAtlasData(const char* organPathBase);
 private:
 	// Data Loading Params
 	std::vector<std::string> organNames; // This is for selecting the organ data from UI. The names are hardcoded. 
