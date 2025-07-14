@@ -16,16 +16,9 @@ void OrganVisualizationScene::load(VulkanEngine* engine)
 {
     pEngine = engine;
 
-    glm::uvec3 gridSize;
-    std::tie(voxelBuffer, gridSize) = loadCTheadData();
+    organNames = { "CThead"};
 
-    mcSettings.gridSize = glm::uvec3(gridSize.x, gridSize.z, gridSize.y);
-    mcSettings.shellSize = mcSettings.gridSize;
-    mcSettings.isoValue = 0.5f;
-
-    MarchingCubesPass::SetVoxelBufferDeviceAddress(pEngine->getBufferDeviceAddress(voxelBuffer.buffer));
-    MarchingCubesPass::SetGridCornerPositions(glm::vec3(-0.5f), glm::vec3(0.5f));
-    MarchingCubesPass::UpdateMCSettings(mcSettings);;
+    loadData(0);
 
     // Set the camera
     mainCamera = Camera(glm::vec3(-2.0f, 0.0f, 2.0f), 0.0f, -45.0f);
@@ -46,6 +39,29 @@ void OrganVisualizationScene::processSDLEvents(SDL_Event& e)
 void OrganVisualizationScene::handleUI()
 {
     ImGui::Begin("Marching Cubes Parameters");
+
+    // Organ Selection
+    if(ImGui::BeginCombo("Scene Selection", organNames[selectedOrganID].c_str()))
+    {
+        for(int i = 0; i < organNames.size(); i++)
+        {
+            const bool isSelected = (selectedOrganID == i);
+            if(ImGui::Selectable(organNames[i].c_str(), isSelected))
+            {
+                if(selectedOrganID != i)
+                {
+                    selectedOrganID = i;
+                    loadData(selectedOrganID);
+                }
+            }
+
+            // Set the initial focus when opening the combo
+            if(isSelected)
+                ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+
     ImGui::SliderFloat("Iso Value", &mcSettings.isoValue, 0.0f, 1.0f);
     ImGui::End();
 }
@@ -77,13 +93,37 @@ void OrganVisualizationScene::update()
 
 void OrganVisualizationScene::drawFrame(VkCommandBuffer cmd)
 {
-    MarchingCubesPass::Execute(pEngine, cmd);
     CircleGridPlanePass::Execute(pEngine, cmd);
+    MarchingCubesPass::Execute(pEngine, cmd);
 }
 
 OrganVisualizationScene::~OrganVisualizationScene()
 {
     pEngine->destroyBuffer(voxelBuffer);
+}
+
+void OrganVisualizationScene::loadData(uint32_t organID)
+{
+    pEngine->destroyBuffer(voxelBuffer);
+    glm::uvec3 gridSize;
+
+    switch(organID)
+    {
+        case 0:
+            std::tie(voxelBuffer, gridSize) = loadCTheadData();
+            mcSettings.gridSize = glm::uvec3(gridSize.x, gridSize.z, gridSize.y);
+            break;
+        default:
+            fmt::println("No existing organ id is selected!");
+            break;
+    }
+
+    mcSettings.shellSize = mcSettings.gridSize;
+    mcSettings.isoValue = 0.5f;
+
+    MarchingCubesPass::SetVoxelBufferDeviceAddress(pEngine->getBufferDeviceAddress(voxelBuffer.buffer));
+    MarchingCubesPass::SetGridCornerPositions(glm::vec3(-0.5f), glm::vec3(0.5f));
+    MarchingCubesPass::UpdateMCSettings(mcSettings);
 }
 
 std::pair<AllocatedBuffer, glm::uvec3> OrganVisualizationScene::loadCTheadData() const
