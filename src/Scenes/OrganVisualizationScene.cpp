@@ -249,7 +249,7 @@ std::pair<AllocatedBuffer, glm::uvec3> OrganVisualizationScene::loadOrganAtlasDa
     file.close();
 
     size_t voxelBufferSize = gridSize.x * gridSize.y * gridSize.z * sizeof(float);
-    voxelBuffer = pEngine->createAndUploadGPUBuffer(voxelBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, buffer.data());
+    voxelBuffer = pEngine->createAndUploadGPUBuffer(voxelBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, buffer.data());
 
     return { voxelBuffer, gridSize };
 }
