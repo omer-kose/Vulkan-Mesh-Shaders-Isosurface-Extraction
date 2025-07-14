@@ -1,4 +1,4 @@
-#include "CTheadChunksScene.h"
+#include "OrganVisualizationChunksScene.h"
 
 #include <Core/vk_engine.h>
 #include <Core/vk_initializers.h>
@@ -70,7 +70,7 @@ void insertMeshShaderToTransferBarrier(
     );
 }
 
-void CTheadChunksScene::load(VulkanEngine* engine)
+void OrganVisualizationChunksScene::load(VulkanEngine* engine)
 {
     pEngine = engine;
  
@@ -112,12 +112,12 @@ void CTheadChunksScene::load(VulkanEngine* engine)
     pEngine->setColorAttachmentClearColor(VkClearValue{ 0.6f, 0.9f, 1.0f, 1.0f });
 }
 
-void CTheadChunksScene::processSDLEvents(SDL_Event& e)
+void OrganVisualizationChunksScene::processSDLEvents(SDL_Event& e)
 {
     mainCamera.processSDLEvent(e);
 }
 
-void CTheadChunksScene::handleUI()
+void OrganVisualizationChunksScene::handleUI()
 {
     ImGui::Begin("Marching Cubes Parameters");
     ImGui::SliderFloat("Iso Value", &mcSettings.isoValue, 0.0f, 1.0f);
@@ -126,7 +126,7 @@ void CTheadChunksScene::handleUI()
     ImGui::End();
 }
 
-void CTheadChunksScene::update()
+void OrganVisualizationChunksScene::update()
 {
     mainCamera.update();
 
@@ -153,7 +153,7 @@ void CTheadChunksScene::update()
     ChunkVisualizationPass::SetInputIsoValue(mcSettings.isoValue);
 }
 
-void CTheadChunksScene::drawFrame(VkCommandBuffer cmd)
+void OrganVisualizationChunksScene::drawFrame(VkCommandBuffer cmd)
 {
     CircleGridPlanePass::Execute(pEngine, cmd);
     if(showChunks)
@@ -164,13 +164,13 @@ void CTheadChunksScene::drawFrame(VkCommandBuffer cmd)
     executeChunksSorted ? executeMCSorted(cmd) : executeMCUnsorted(cmd);
 }
 
-CTheadChunksScene::~CTheadChunksScene()
+OrganVisualizationChunksScene::~OrganVisualizationChunksScene()
 {
     pEngine->destroyBuffer(voxelChunksBuffer);
     pEngine->destroyBuffer(chunkVisualizationBuffer);
 }
 
-void CTheadChunksScene::createChunkVisualizationBuffer(const std::vector<VolumeChunk>& chunks)
+void OrganVisualizationChunksScene::createChunkVisualizationBuffer(const std::vector<VolumeChunk>& chunks)
 {
     struct ChunkVisInformation
     {
@@ -198,7 +198,7 @@ void CTheadChunksScene::createChunkVisualizationBuffer(const std::vector<VolumeC
     chunkVisualizationBufferAddress = pEngine->getBufferDeviceAddress(chunkVisualizationBuffer.buffer);
 }
 
-std::pair<std::vector<float>, glm::uvec3> CTheadChunksScene::loadCTheadData() const
+std::pair<std::vector<float>, glm::uvec3> OrganVisualizationChunksScene::loadCTheadData() const
 {
     /*
          Load CT Head data. It is given in bytes. Format is 16-bit integers where two consecutive bytes make up one binary integer.
@@ -300,7 +300,7 @@ std::pair<std::vector<float>, glm::uvec3> CTheadChunksScene::loadCTheadData() co
     return {gridData, gridSize};
 }
 
-void CTheadChunksScene::executeMCUnsorted(VkCommandBuffer cmd) const
+void OrganVisualizationChunksScene::executeMCUnsorted(VkCommandBuffer cmd) const
 {
     // Fetch the chunks that contain the input iso-value in range
     std::vector<VolumeChunk*> renderChunks = chunkedVolumeData->query(mcSettings.isoValue);
@@ -361,7 +361,7 @@ void CTheadChunksScene::executeMCUnsorted(VkCommandBuffer cmd) const
     }
 }
 
-void CTheadChunksScene::executeMCSorted(VkCommandBuffer cmd) const
+void OrganVisualizationChunksScene::executeMCSorted(VkCommandBuffer cmd) const
 {
     // Fetch the chunks that contain the input iso-value in range
     std::vector<VolumeChunk*> renderChunks = chunkedVolumeData->query(mcSettings.isoValue);

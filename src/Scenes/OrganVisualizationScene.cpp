@@ -1,4 +1,4 @@
-#include "CTheadScene.h"
+#include "OrganVisualizationScene.h"
 
 #include <Core/vk_engine.h>
 #include <Core/vk_initializers.h>
@@ -12,7 +12,7 @@
 
 #include <glm/gtx/transform.hpp>
 
-void CTheadScene::load(VulkanEngine* engine)
+void OrganVisualizationScene::load(VulkanEngine* engine)
 {
     pEngine = engine;
 
@@ -38,19 +38,19 @@ void CTheadScene::load(VulkanEngine* engine)
     CircleGridPlanePass::SetPlaneHeight(-0.1f);
 }
 
-void CTheadScene::processSDLEvents(SDL_Event& e)
+void OrganVisualizationScene::processSDLEvents(SDL_Event& e)
 {
     mainCamera.processSDLEvent(e);
 }
 
-void CTheadScene::handleUI()
+void OrganVisualizationScene::handleUI()
 {
     ImGui::Begin("Marching Cubes Parameters");
     ImGui::SliderFloat("Iso Value", &mcSettings.isoValue, 0.0f, 1.0f);
     ImGui::End();
 }
 
-void CTheadScene::update()
+void OrganVisualizationScene::update()
 {
     mainCamera.update();
 
@@ -75,18 +75,18 @@ void CTheadScene::update()
     MarchingCubesPass::UpdateMCSettings(mcSettings);
 }
 
-void CTheadScene::drawFrame(VkCommandBuffer cmd)
+void OrganVisualizationScene::drawFrame(VkCommandBuffer cmd)
 {
     MarchingCubesPass::Execute(pEngine, cmd);
     CircleGridPlanePass::Execute(pEngine, cmd);
 }
 
-CTheadScene::~CTheadScene()
+OrganVisualizationScene::~OrganVisualizationScene()
 {
     pEngine->destroyBuffer(voxelBuffer);
 }
 
-std::pair<AllocatedBuffer, glm::uvec3> CTheadScene::loadCTheadData() const
+std::pair<AllocatedBuffer, glm::uvec3> OrganVisualizationScene::loadCTheadData() const
 {
     /*
          Load CT Head data. It is given in bytes. Format is 16-bit integers where two consecutive bytes make up one binary integer.

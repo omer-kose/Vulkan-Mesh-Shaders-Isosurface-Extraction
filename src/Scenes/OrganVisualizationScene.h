@@ -5,7 +5,7 @@
 #include <Pass/MarchingCubesPass.h>
 #include <Pass/CircleGridPlanePass.h>
 
-class CTheadScene : public Scene
+class OrganVisualizationScene : public Scene
 {
 public:
 	virtual void load(VulkanEngine* engine) override;
@@ -13,7 +13,7 @@ public:
 	virtual void handleUI() override; // Add UI field in ImGUI for scene parameters
 	virtual void update() override; // called in engine update
 	virtual void drawFrame(VkCommandBuffer cmd) override; // called by drawing logic in engine to draw the scene
-	virtual ~CTheadScene();
+	virtual ~OrganVisualizationScene();
 private:
 	std::pair<AllocatedBuffer, glm::uvec3> loadCTheadData() const;
 private:

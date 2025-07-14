@@ -8,7 +8,7 @@
 
 #include <Data/ChunkedVolumeData.h>
 
-class CTheadChunksScene : public Scene
+class OrganVisualizationChunksScene : public Scene
 {
 public:
 	virtual void load(VulkanEngine* engine) override;
@@ -16,7 +16,7 @@ public:
 	virtual void handleUI() override; // Add UI field in ImGUI for scene parameters
 	virtual void update() override; // called in engine update
 	virtual void drawFrame(VkCommandBuffer cmd) override; // called by drawing logic in engine to draw the scene
-	virtual ~CTheadChunksScene();
+	virtual ~OrganVisualizationChunksScene();
 private:
 	void createChunkVisualizationBuffer(const std::vector<VolumeChunk>& chunks);
 	std::pair<std::vector<float>, glm::uvec3> loadCTheadData() const;
