@@ -19,7 +19,7 @@ public:
 	virtual ~CTheadChunksScene();
 private:
 	void createChunkVisualizationBuffer(const std::vector<VolumeChunk>& chunks);
-	std::pair<std::vector<float>, glm::uvec3> loadGridData() const;
+	std::pair<std::vector<float>, glm::uvec3> loadCTheadData() const;
 	void executeMCUnsorted(VkCommandBuffer cmd) const;
 	void executeMCSorted(VkCommandBuffer cmd) const;
 private:

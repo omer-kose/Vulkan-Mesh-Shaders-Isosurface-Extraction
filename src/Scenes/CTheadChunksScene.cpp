@@ -75,7 +75,7 @@ void CTheadChunksScene::load(VulkanEngine* engine)
     pEngine = engine;
  
     std::vector<float> gridData; glm::uvec3 gridSize;
-    std::tie(gridData, gridSize) = loadGridData();
+    std::tie(gridData, gridSize) = loadCTheadData();
 
     // Create the chunked version of the grid
     glm::uvec3 chunkSize = glm::uvec3(32, 32, 32);
@@ -198,7 +198,7 @@ void CTheadChunksScene::createChunkVisualizationBuffer(const std::vector<VolumeC
     chunkVisualizationBufferAddress = pEngine->getBufferDeviceAddress(chunkVisualizationBuffer.buffer);
 }
 
-std::pair<std::vector<float>, glm::uvec3> CTheadChunksScene::loadGridData() const
+std::pair<std::vector<float>, glm::uvec3> CTheadChunksScene::loadCTheadData() const
 {
     /*
          Load CT Head data. It is given in bytes. Format is 16-bit integers where two consecutive bytes make up one binary integer.

@@ -15,6 +15,8 @@ public:
 	virtual void drawFrame(VkCommandBuffer cmd) override; // called by drawing logic in engine to draw the scene
 	virtual ~CTheadScene();
 private:
+	std::pair<AllocatedBuffer, glm::uvec3> loadCTheadData() const;
+private:
 	MarchingCubesPass::MCSettings mcSettings; // Keep track of settings to be able to modify it via GUI and update once before the render
 	AllocatedBuffer voxelBuffer;
 };
