@@ -104,24 +104,24 @@ OrganVisualizationScene::~OrganVisualizationScene()
 
 void OrganVisualizationScene::loadData(uint32_t organID)
 {
+    vkDeviceWaitIdle(pEngine->device);
     pEngine->destroyBuffer(voxelBuffer);
     glm::uvec3 gridSize;
 
     switch(organID)
     {
-    case 0:
-        std::tie(voxelBuffer, gridSize) = loadCTheadData();
-        mcSettings.gridSize = glm::uvec3(gridSize.x, gridSize.z, gridSize.y);
-        break;
-    case 1:
-        std::tie(voxelBuffer, gridSize) = loadOrganAtlasData("../../assets/organ_atlas/kidney");
-        mcSettings.gridSize = gridSize;
-        break;
-    default:
-        fmt::println("No existing organ id is selected!");
-        break;
+        case 0:
+            std::tie(voxelBuffer, gridSize) = loadCTheadData();
+            break;
+        case 1:
+            std::tie(voxelBuffer, gridSize) = loadOrganAtlasData("../../assets/organ_atlas/kidney");
+            break;
+        default:
+            fmt::println("No existing organ id is selected!");
+            break;
     }
 
+    mcSettings.gridSize = gridSize;
     mcSettings.shellSize = mcSettings.gridSize;
     mcSettings.isoValue = 0.5f;
 
@@ -221,7 +221,8 @@ std::pair<AllocatedBuffer, glm::uvec3> OrganVisualizationScene::loadCTheadData()
     vkDestroyShaderModule(pEngine->device, converterComputeShader, nullptr);
     pEngine->destroyBuffer(sourceBuffer);
 
-    return { voxelBuffer, gridSize };
+    // During load I align CThead with right handed standard coordinate system. For that y and z axes change.
+    return { voxelBuffer, glm::uvec3(gridSize.x, gridSize.z, gridSize.y)};
 }
 
 std::pair<AllocatedBuffer, glm::uvec3> OrganVisualizationScene::loadOrganAtlasData(const char* organPathBase)
@@ -233,6 +234,10 @@ std::pair<AllocatedBuffer, glm::uvec3> OrganVisualizationScene::loadOrganAtlasDa
     // Load the grid size
     glm::uvec3 gridSize;
     std::ifstream file(gridSizePath);
+    if(!file)
+    {
+        fmt::println("Could not open the file: {}", gridSizePath);
+    }
     uint32_t size; int i = 0;
     while(file >> size)
     {
@@ -242,6 +247,10 @@ std::pair<AllocatedBuffer, glm::uvec3> OrganVisualizationScene::loadOrganAtlasDa
 
     // Read the binary grid data
     file.open(binPath, std::ios::ate | std::ios::binary);
+    if(!file)
+    {
+        fmt::println("Could not open the file: {}", binPath);
+    }
     size_t fileSize = (size_t)file.tellg();
     std::vector<char> buffer(fileSize);
     file.seekg(0);
