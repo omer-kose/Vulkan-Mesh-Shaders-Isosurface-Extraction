@@ -90,6 +90,11 @@ VkBuffer ChunkedVolumeData::getStagingBuffer() const
 	return chunksStagingBuffer.buffer;
 }
 
+void* ChunkedVolumeData::getStagingBufferBaseAddress() const
+{
+	return pChunksStagingBuffer;
+}
+
 size_t ChunkedVolumeData::getTotalNumPointsPerChunk() const
 {
 	return (chunkSize.x + 2) * (chunkSize.y + 2) * (chunkSize.z + 2);

@@ -25,6 +25,7 @@ private:
 	void createChunkVisualizationBuffer(const std::vector<VolumeChunk>& chunks);
 	void executeMCUnsorted(VkCommandBuffer cmd) const;
 	void executeMCSorted(VkCommandBuffer cmd) const;
+	void executeMCLoadOnce(VkCommandBuffer cmd) const;
 private:
 	// Data Loading Params
 	std::vector<std::string> organNames; // This is for selecting the organ data from UI. The names are hardcoded. 
@@ -41,4 +42,5 @@ private:
 	size_t numChunksInGpu = 32;
 	bool showChunks = false;
 	bool executeChunksSorted = false;
+	bool dataFitsInGPU = true;
 };

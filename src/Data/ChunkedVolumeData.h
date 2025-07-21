@@ -31,6 +31,7 @@ public:
 	glm::uvec3 getChunkSize() const;
 	size_t getNumChunksFlat() const;
 	VkBuffer getStagingBuffer() const;
+	void* getStagingBufferBaseAddress() const;
 	size_t getTotalNumPointsPerChunk() const;
 	glm::uvec3 getShellSize() const;
 	const std::vector<VolumeChunk>& getChunks() const;

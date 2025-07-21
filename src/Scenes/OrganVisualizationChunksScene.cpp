@@ -166,7 +166,8 @@ void OrganVisualizationChunksScene::drawFrame(VkCommandBuffer cmd)
         ChunkVisualizationPass::Execute(pEngine, cmd, chunkedVolumeData->getNumChunksFlat(), 3.0f);
     }
     
-    executeChunksSorted ? executeMCSorted(cmd) : executeMCUnsorted(cmd);
+    //executeChunksSorted ? executeMCSorted(cmd) : executeMCUnsorted(cmd);
+    executeMCLoadOnce(cmd);
 }
 
 OrganVisualizationChunksScene::~OrganVisualizationChunksScene()
@@ -228,10 +229,20 @@ void OrganVisualizationChunksScene::loadData(uint32_t organID)
     gridData.clear();
     //chunkedVolumeData->computeChunkIsoValueHistograms(minVolumeIsoValue, maxVolumeIsoValue, numBins);
 
-    // Allocate the chunk buffer on GPU
-    size_t voxelChunksBufferSize = numChunksInGpu * chunkedVolumeData->getTotalNumPointsPerChunk() * sizeof(float);
-    voxelChunksBuffer = pEngine->createBuffer(voxelChunksBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
-    voxelChunksBufferBaseAddress = pEngine->getBufferDeviceAddress(voxelChunksBuffer.buffer);
+    if(dataFitsInGPU)
+    {
+        // Allocate the chunk buffer on GPU and load the whole data at the beginning only once
+        size_t voxelChunksBufferSize = chunkedVolumeData->getNumChunksFlat() * chunkedVolumeData->getTotalNumPointsPerChunk() * sizeof(float);
+        voxelChunksBuffer = pEngine->createAndUploadGPUBuffer(voxelChunksBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, chunkedVolumeData->getStagingBufferBaseAddress());
+        voxelChunksBufferBaseAddress = pEngine->getBufferDeviceAddress(voxelChunksBuffer.buffer);
+    }
+    else
+    {
+        // Allocate the chunk buffer on GPU
+        size_t voxelChunksBufferSize = numChunksInGpu * chunkedVolumeData->getTotalNumPointsPerChunk() * sizeof(float);
+        voxelChunksBuffer = pEngine->createBuffer(voxelChunksBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+        voxelChunksBufferBaseAddress = pEngine->getBufferDeviceAddress(voxelChunksBuffer.buffer);
+    }
 
     mcSettings.gridSize = chunkSize;
     mcSettings.shellSize = chunkedVolumeData->getShellSize();
@@ -511,5 +522,22 @@ void OrganVisualizationChunksScene::executeMCSorted(VkCommandBuffer cmd) const
         }
 
         numRenderChunks -= numChunksInGpu;
+    }
+}
+
+void OrganVisualizationChunksScene::executeMCLoadOnce(VkCommandBuffer cmd) const
+{
+    // Fetch the chunks that contain the input iso-value in range
+    std::vector<VolumeChunk*> renderChunks = chunkedVolumeData->query(mcSettings.isoValue);
+    int numRenderChunks = renderChunks.size();
+    size_t chunkSizeInBytes = chunkedVolumeData->getTotalNumPointsPerChunk() * sizeof(float);
+
+    for(int i = 0; i < numRenderChunks; ++i)
+    {
+        // Dispatch the mesh shaders for each chunk
+        MarchingCubesPass::SetVoxelBufferDeviceAddress(voxelChunksBufferBaseAddress + renderChunks[i]->stagingBufferOffset);
+        MarchingCubesPass::SetGridCornerPositions(renderChunks[i]->lowerCornerPos, renderChunks[i]->upperCornerPos);
+        MarchingCubesPass::Execute(pEngine, cmd);
+
     }
 }
