@@ -433,6 +433,22 @@ AllocatedBuffer VulkanEngine::createAndUploadGPUBuffer(size_t allocSize, VkBuffe
     return newBuffer;
 }
 
+AllocatedBuffer VulkanEngine::uploadStagingBuffer(VkBuffer stagingBuffer, size_t allocSize, VkBufferUsageFlags usage, size_t srcOffset, size_t dstOffset)
+{
+    AllocatedBuffer newBuffer = createBuffer(allocSize, usage, VMA_MEMORY_USAGE_GPU_ONLY);
+
+    immediateSubmit([&](VkCommandBuffer cmd) {
+        VkBufferCopy copy{};
+        copy.dstOffset = dstOffset;
+        copy.srcOffset = srcOffset;
+        copy.size = allocSize;
+
+        vkCmdCopyBuffer(cmd, stagingBuffer, newBuffer.buffer, 1, &copy);
+    });
+
+    return newBuffer;
+}
+
 AllocatedBuffer VulkanEngine::downloadGPUBuffer(VkBuffer gpuBuffer, size_t allocSize, size_t srcOffset, size_t dstOffset)
 {
     AllocatedBuffer cpuBuffer = createBuffer(allocSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_CPU_ONLY);

@@ -116,8 +116,10 @@ public:
 
 	// Engine utilities (TODO: For the time being most of the stuff are directly open to outside but I will be slowly hiding them)
 	AllocatedBuffer createBuffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage);
-	// Allocates a buffer on local device memory and uploads the given data using a stage buffer
+	// Allocates a buffer on local device memory and uploads the given data using a staging buffer
 	AllocatedBuffer createAndUploadGPUBuffer(size_t allocSize, VkBufferUsageFlags usage, const void* data, size_t srcOffset = 0, size_t dstOffset = 0);
+	// Allocates a buffer on local device memory and uploads an already existing staging buffer on the CPU
+	AllocatedBuffer uploadStagingBuffer(VkBuffer stagingBuffer, size_t allocSize, VkBufferUsageFlags usage, size_t srcOffset = 0, size_t dstOffset = 0);
 	AllocatedBuffer downloadGPUBuffer(VkBuffer gpuBuffer, size_t allocSize, size_t srcOffset = 0, size_t dstOffset=0);
 	VkDeviceAddress getBufferDeviceAddress(VkBuffer buffer);
 	void* getMappedStagingBufferData(const AllocatedBuffer& buffer);
