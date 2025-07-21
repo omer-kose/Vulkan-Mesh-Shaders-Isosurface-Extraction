@@ -1,4 +1,4 @@
-#include "CTheadChunksScene.h"
+#include "OrganVisualizationChunksScene.h"
 
 #include <Core/vk_engine.h>
 #include <Core/vk_initializers.h>
@@ -70,31 +70,13 @@ void insertMeshShaderToTransferBarrier(
     );
 }
 
-void CTheadChunksScene::load(VulkanEngine* engine)
+void OrganVisualizationChunksScene::load(VulkanEngine* engine)
 {
     pEngine = engine;
- 
-    std::vector<float> gridData; glm::uvec3 gridSize;
-    std::tie(gridData, gridSize) = loadGridData();
 
-    // Create the chunked version of the grid
-    glm::uvec3 chunkSize = glm::uvec3(32, 32, 32);
-    chunkedVolumeData = std::make_unique<ChunkedVolumeData>(pEngine, gridData, glm::vec3(gridSize.x, gridSize.z, gridSize.y), chunkSize, glm::vec3(-0.5f), glm::vec3(0.5f));
-    float minVolumeIsoValue = 0.0; float maxVolumeIsoValue = 1.0f; size_t numBins = 12;
-    chunkedVolumeData->computeChunkIsoValueHistograms(minVolumeIsoValue, maxVolumeIsoValue, numBins);
+    organNames = { "CThead", "Kidney" };
 
-    // Allocate the chunk buffer on GPU
-    numChunksInGpu = 32;
-    size_t voxelChunksBufferSize = numChunksInGpu * chunkedVolumeData->getTotalNumPointsPerChunk() * sizeof(float);
-    voxelChunksBuffer = pEngine->createBuffer(voxelChunksBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
-    voxelChunksBufferBaseAddress = pEngine->getBufferDeviceAddress(voxelChunksBuffer.buffer);
-
-    // Set MC Settings
-    mcSettings.gridSize = chunkSize; // Grid is a single chunk for each mesh shader dispatch.
-    mcSettings.shellSize = chunkedVolumeData->getShellSize();
-    mcSettings.isoValue = 0.5f;
-
-    MarchingCubesPass::UpdateMCSettings(mcSettings);
+    loadData(0);
 
     // Set Grid Plane Pass Settings
     CircleGridPlanePass::SetPlaneHeight(-0.1f);
@@ -112,21 +94,44 @@ void CTheadChunksScene::load(VulkanEngine* engine)
     pEngine->setColorAttachmentClearColor(VkClearValue{ 0.6f, 0.9f, 1.0f, 1.0f });
 }
 
-void CTheadChunksScene::processSDLEvents(SDL_Event& e)
+void OrganVisualizationChunksScene::processSDLEvents(SDL_Event& e)
 {
     mainCamera.processSDLEvent(e);
 }
 
-void CTheadChunksScene::handleUI()
+void OrganVisualizationChunksScene::handleUI()
 {
     ImGui::Begin("Marching Cubes Parameters");
+
+    // Organ Selection
+    if(ImGui::BeginCombo("Scene Selection", organNames[selectedOrganID].c_str()))
+    {
+        for(int i = 0; i < organNames.size(); i++)
+        {
+            const bool isSelected = (selectedOrganID == i);
+            if(ImGui::Selectable(organNames[i].c_str(), isSelected))
+            {
+                if(selectedOrganID != i)
+                {
+                    selectedOrganID = i;
+                    loadData(selectedOrganID);
+                }
+            }
+
+            // Set the initial focus when opening the combo
+            if(isSelected)
+                ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+
     ImGui::SliderFloat("Iso Value", &mcSettings.isoValue, 0.0f, 1.0f);
     ImGui::Checkbox("Show Chunks", &showChunks);
     ImGui::Checkbox("Execute Chunks Sorted", &executeChunksSorted);
     ImGui::End();
 }
 
-void CTheadChunksScene::update()
+void OrganVisualizationChunksScene::update()
 {
     mainCamera.update();
 
@@ -153,7 +158,7 @@ void CTheadChunksScene::update()
     ChunkVisualizationPass::SetInputIsoValue(mcSettings.isoValue);
 }
 
-void CTheadChunksScene::drawFrame(VkCommandBuffer cmd)
+void OrganVisualizationChunksScene::drawFrame(VkCommandBuffer cmd)
 {
     CircleGridPlanePass::Execute(pEngine, cmd);
     if(showChunks)
@@ -161,16 +166,17 @@ void CTheadChunksScene::drawFrame(VkCommandBuffer cmd)
         ChunkVisualizationPass::Execute(pEngine, cmd, chunkedVolumeData->getNumChunksFlat(), 3.0f);
     }
     
-    executeChunksSorted ? executeMCSorted(cmd) : executeMCUnsorted(cmd);
+    //executeChunksSorted ? executeMCSorted(cmd) : executeMCUnsorted(cmd);
+    executeMCLoadOnce(cmd);
 }
 
-CTheadChunksScene::~CTheadChunksScene()
+OrganVisualizationChunksScene::~OrganVisualizationChunksScene()
 {
     pEngine->destroyBuffer(voxelChunksBuffer);
     pEngine->destroyBuffer(chunkVisualizationBuffer);
 }
 
-void CTheadChunksScene::createChunkVisualizationBuffer(const std::vector<VolumeChunk>& chunks)
+void OrganVisualizationChunksScene::createChunkVisualizationBuffer(const std::vector<VolumeChunk>& chunks)
 {
     struct ChunkVisInformation
     {
@@ -198,7 +204,54 @@ void CTheadChunksScene::createChunkVisualizationBuffer(const std::vector<VolumeC
     chunkVisualizationBufferAddress = pEngine->getBufferDeviceAddress(chunkVisualizationBuffer.buffer);
 }
 
-std::pair<std::vector<float>, glm::uvec3> CTheadChunksScene::loadGridData() const
+void OrganVisualizationChunksScene::loadData(uint32_t organID)
+{
+    // Make sure that Vulkan is done working with the buffer (not the best way but in this case this scene does not do anything else other than rendering a geometry)
+    vkDeviceWaitIdle(pEngine->device);
+    pEngine->destroyBuffer(voxelChunksBuffer);
+    std::vector<float> gridData; glm::uvec3 gridSize;
+
+    switch(organID)
+    {
+        case 0:
+            std::tie(gridData, gridSize) = loadCTheadData();
+            break;
+        case 1:
+            std::tie(gridData, gridSize) = loadOrganAtlasData("../../assets/organ_atlas/kidney");
+            break;
+        default:
+            fmt::println("No existing organ id is selected!");
+            break;
+    }
+
+    // Create the chunked version of the grid
+    chunkedVolumeData = std::make_unique<ChunkedVolumeData>(pEngine, gridData, gridSize, chunkSize, glm::vec3(-0.5f), glm::vec3(0.5f));
+    gridData.clear();
+    //chunkedVolumeData->computeChunkIsoValueHistograms(minVolumeIsoValue, maxVolumeIsoValue, numBins);
+
+    if(dataFitsInGPU)
+    {
+        // Allocate the chunk buffer on GPU and load the whole data at the beginning only once
+        size_t voxelChunksBufferSize = chunkedVolumeData->getNumChunksFlat() * chunkedVolumeData->getTotalNumPointsPerChunk() * sizeof(float);
+        voxelChunksBuffer = pEngine->createAndUploadGPUBuffer(voxelChunksBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, chunkedVolumeData->getStagingBufferBaseAddress());
+        voxelChunksBufferBaseAddress = pEngine->getBufferDeviceAddress(voxelChunksBuffer.buffer);
+    }
+    else
+    {
+        // Allocate the chunk buffer on GPU
+        size_t voxelChunksBufferSize = numChunksInGpu * chunkedVolumeData->getTotalNumPointsPerChunk() * sizeof(float);
+        voxelChunksBuffer = pEngine->createBuffer(voxelChunksBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+        voxelChunksBufferBaseAddress = pEngine->getBufferDeviceAddress(voxelChunksBuffer.buffer);
+    }
+
+    mcSettings.gridSize = chunkSize;
+    mcSettings.shellSize = chunkedVolumeData->getShellSize();
+    mcSettings.isoValue = 0.5f;
+    MarchingCubesPass::UpdateMCSettings(mcSettings);
+
+}
+
+std::pair<std::vector<float>, glm::uvec3> OrganVisualizationChunksScene::loadCTheadData() const
 {
     /*
          Load CT Head data. It is given in bytes. Format is 16-bit integers where two consecutive bytes make up one binary integer.
@@ -297,10 +350,46 @@ std::pair<std::vector<float>, glm::uvec3> CTheadChunksScene::loadGridData() cons
     pEngine->destroyBuffer(voxelBuffer);
     pEngine->destroyBuffer(voxelBufferCPU);
 
-    return {gridData, gridSize};
+    // During load I align CThead with right handed standard coordinate system. For that y and z axes change.
+    return { gridData, glm::uvec3(gridSize.x, gridSize.z, gridSize.y) };
 }
 
-void CTheadChunksScene::executeMCUnsorted(VkCommandBuffer cmd) const
+std::pair<std::vector<float>, glm::uvec3> OrganVisualizationChunksScene::loadOrganAtlasData(const char* organPathBase) const
+{
+    // All the data in organ atlas has the same signature
+    std::string binPath = std::string(organPathBase) + ".bin";
+    std::string gridSizePath = std::string(organPathBase) + "_shape.txt";
+
+    // Load the grid size
+    glm::uvec3 gridSize;
+    std::ifstream file(gridSizePath);
+    if(!file)
+    {
+        fmt::println("Could not open the file: {}", gridSizePath);
+    }
+    uint32_t size; int i = 0;
+    while(file >> size)
+    {
+        gridSize[i++] = size;
+    }
+    file.close();
+
+    // Read the binary grid data
+    file.open(binPath, std::ios::binary);
+    if(!file)
+    {
+        fmt::println("Could not open the file: {}", binPath);
+    }
+    size_t numElements = gridSize.x * gridSize.y * gridSize.z;
+    std::vector<float> buffer(numElements);
+    file.read(reinterpret_cast<char*>(buffer.data()), numElements * sizeof(float));
+
+    file.close();
+
+    return { buffer, gridSize };
+}
+
+void OrganVisualizationChunksScene::executeMCUnsorted(VkCommandBuffer cmd) const
 {
     // Fetch the chunks that contain the input iso-value in range
     std::vector<VolumeChunk*> renderChunks = chunkedVolumeData->query(mcSettings.isoValue);
@@ -361,7 +450,7 @@ void CTheadChunksScene::executeMCUnsorted(VkCommandBuffer cmd) const
     }
 }
 
-void CTheadChunksScene::executeMCSorted(VkCommandBuffer cmd) const
+void OrganVisualizationChunksScene::executeMCSorted(VkCommandBuffer cmd) const
 {
     // Fetch the chunks that contain the input iso-value in range
     std::vector<VolumeChunk*> renderChunks = chunkedVolumeData->query(mcSettings.isoValue);
@@ -433,5 +522,22 @@ void CTheadChunksScene::executeMCSorted(VkCommandBuffer cmd) const
         }
 
         numRenderChunks -= numChunksInGpu;
+    }
+}
+
+void OrganVisualizationChunksScene::executeMCLoadOnce(VkCommandBuffer cmd) const
+{
+    // Fetch the chunks that contain the input iso-value in range
+    std::vector<VolumeChunk*> renderChunks = chunkedVolumeData->query(mcSettings.isoValue);
+    int numRenderChunks = renderChunks.size();
+    size_t chunkSizeInBytes = chunkedVolumeData->getTotalNumPointsPerChunk() * sizeof(float);
+
+    for(int i = 0; i < numRenderChunks; ++i)
+    {
+        // Dispatch the mesh shaders for each chunk
+        MarchingCubesPass::SetVoxelBufferDeviceAddress(voxelChunksBufferBaseAddress + renderChunks[i]->stagingBufferOffset);
+        MarchingCubesPass::SetGridCornerPositions(renderChunks[i]->lowerCornerPos, renderChunks[i]->upperCornerPos);
+        MarchingCubesPass::Execute(pEngine, cmd);
+
     }
 }

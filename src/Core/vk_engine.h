@@ -9,8 +9,8 @@
 #include <Pass/MarchingCubesPassSDF.h>
 #include <Pass/MarchingCubesPass.h>
 
-#include <Scenes/CTheadScene.h>
-#include <Scenes/CTheadChunksScene.h>
+#include <Scenes/OrganVisualizationScene.h>
+#include <Scenes/OrganVisualizationChunksScene.h>
 
 struct DeletionQueue
 {
