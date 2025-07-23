@@ -2,7 +2,6 @@
 #include <Core/vk_types.h>
 
 class VulkanEngine;
-struct RenderObject;
 
 class CircleGridPlanePass
 {

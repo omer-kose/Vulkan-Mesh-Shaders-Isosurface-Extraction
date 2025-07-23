@@ -8,6 +8,7 @@
 #include <Pass/ChunkVisualizationPass.h>
 #include <Pass/MarchingCubesPassSDF.h>
 #include <Pass/MarchingCubesPass.h>
+#include <Pass/HZBDownSamplePass.h>
 
 #include <Scenes/OrganVisualizationScene.h>
 #include <Scenes/OrganVisualizationChunksScene.h>
@@ -127,6 +128,8 @@ public:
 
 	AllocatedImage createImage(VkExtent3D imageExtent, VkFormat format, VkImageUsageFlags usage, bool mipMapped = false);
 	AllocatedImage createImage(void* data, VkExtent3D imageExtent, VkFormat format, VkImageUsageFlags usage, bool mipMapped = false);
+	VkImageView createImageView(VkImage image, VkFormat format, uint32_t mipLevel, uint32_t levelCount);
+	VkSampler createImageSampler(VkFilter filter, VkSamplerMipmapMode mipmapMode, VkSamplerAddressMode addressMode, VkSamplerReductionModeEXT reductionMode);
 	void destroyImage(const AllocatedImage& img);
 
 	GPUMeshBuffers uploadMesh(std::span<Vertex> vertices, std::span<uint32_t> indices);

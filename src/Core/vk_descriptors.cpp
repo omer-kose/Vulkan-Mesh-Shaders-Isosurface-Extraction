@@ -250,7 +250,7 @@ VkDescriptorPool DescriptorAllocatorGrowable::createPool(VkDevice device, uint32
 	}
 	
 	VkDescriptorPoolCreateInfo poolInfo = { .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO, .pNext = nullptr };
-	poolInfo.flags = 0;
+	poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
 	poolInfo.maxSets = maxSets;
 	poolInfo.poolSizeCount = (uint32_t)poolSizes.size();
 	poolInfo.pPoolSizes = descriptorPoolSizes.data();

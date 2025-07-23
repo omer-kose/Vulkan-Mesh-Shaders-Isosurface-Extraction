@@ -170,6 +170,11 @@ void OrganVisualizationChunksScene::drawFrame(VkCommandBuffer cmd)
     executeMCLoadOnce(cmd);
 }
 
+void OrganVisualizationChunksScene::performPostRenderPassOps(VkCommandBuffer cmd)
+{
+    HZBDownSamplePass::CopyDepthImage(pEngine, cmd);
+}
+
 OrganVisualizationChunksScene::~OrganVisualizationChunksScene()
 {
     pEngine->destroyBuffer(voxelChunksBuffer);

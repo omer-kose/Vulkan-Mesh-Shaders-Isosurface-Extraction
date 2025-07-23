@@ -97,6 +97,11 @@ void OrganVisualizationScene::drawFrame(VkCommandBuffer cmd)
     MarchingCubesPass::Execute(pEngine, cmd);
 }
 
+void OrganVisualizationScene::performPostRenderPassOps(VkCommandBuffer cmd)
+{
+    return;
+}
+
 OrganVisualizationScene::~OrganVisualizationScene()
 {
     pEngine->destroyBuffer(voxelBuffer);

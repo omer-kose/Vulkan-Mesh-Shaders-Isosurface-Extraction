@@ -233,6 +233,8 @@ void VulkanEngine::drawMain(VkCommandBuffer cmd)
     stats.geometryDrawRecordTime = elapsed.count() / 1000.f;
 
     vkCmdEndRendering(cmd);
+
+    activeScene->performPostRenderPassOps(cmd);
 }
 
 void VulkanEngine::drawGeometry(VkCommandBuffer cmd)
@@ -492,7 +494,7 @@ AllocatedImage VulkanEngine::createImage(VkExtent3D imageExtent, VkFormat format
     {
         imgInfo.mipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(imageExtent.width, imageExtent.height)))) + 1;
     }
-
+    
     // Always allocate images on dedicated GPU memory
     VmaAllocationCreateInfo allocInfo{};
     allocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
@@ -560,6 +562,53 @@ AllocatedImage VulkanEngine::createImage(void* data, VkExtent3D imageExtent, VkF
     destroyBuffer(uploadBuffer);
 
     return newImage;
+}
+
+/*
+    Creates an image view for an already existing image
+*/
+VkImageView VulkanEngine::createImageView(VkImage image, VkFormat format, uint32_t mipLevel, uint32_t levelCount)
+{
+    VkImageAspectFlags aspect = (format == VK_FORMAT_D32_SFLOAT) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+
+    VkImageView view;
+    // Create the image-view for the image
+    VkImageViewCreateInfo viewInfo = vkinit::imageview_create_info(format, image, aspect);
+    viewInfo.subresourceRange.baseMipLevel = mipLevel; // starting (base) mip level of the view
+    viewInfo.subresourceRange.levelCount = levelCount; // how many mip levels does image view has
+
+    VK_CHECK(vkCreateImageView(device, &viewInfo, nullptr, &view));
+
+    return view;
+}
+
+VkSampler VulkanEngine::createImageSampler(VkFilter filter, VkSamplerMipmapMode mipmapMode, VkSamplerAddressMode addressMode, VkSamplerReductionModeEXT reductionMode)
+{
+    VkSamplerCreateInfo createInfo = { VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
+
+    createInfo.magFilter = filter;
+    createInfo.minFilter = filter;
+    createInfo.mipmapMode = mipmapMode;
+    createInfo.addressModeU = addressMode;
+    createInfo.addressModeV = addressMode;
+    createInfo.addressModeW = addressMode;
+    createInfo.minLod = 0;
+    createInfo.maxLod = 16.0f;
+    createInfo.anisotropyEnable = mipmapMode == VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    createInfo.maxAnisotropy = mipmapMode == VK_SAMPLER_MIPMAP_MODE_LINEAR ? 4.0f : 1.0f;
+
+    VkSamplerReductionModeCreateInfoEXT createInfoReduction = { VK_STRUCTURE_TYPE_SAMPLER_REDUCTION_MODE_CREATE_INFO_EXT };
+
+    if(reductionMode != VK_SAMPLER_REDUCTION_MODE_WEIGHTED_AVERAGE_EXT)
+    {
+        createInfoReduction.reductionMode = reductionMode;
+
+        createInfo.pNext = &createInfoReduction;
+    }
+
+    VkSampler sampler = 0;
+    VK_CHECK(vkCreateSampler(device, &createInfo, 0, &sampler));
+    return sampler;
 }
 
 void VulkanEngine::destroyImage(const AllocatedImage& img)
@@ -708,6 +757,12 @@ void VulkanEngine::m_initVulkan()
     features12.storageBuffer8BitAccess = true;
     features12.uniformAndStorageBuffer8BitAccess = true;
     features12.scalarBlockLayout = true;
+    features12.samplerFilterMinmax = true;
+    features12.descriptorBindingSampledImageUpdateAfterBind = true;
+    features12.descriptorBindingPartiallyBound = true;
+    features12.descriptorBindingVariableDescriptorCount = true;
+    features12.descriptorBindingUpdateUnusedWhilePending = true;
+    features12.descriptorBindingStorageImageUpdateAfterBind = true;
 
     // Vulkan 1.0 features
     VkPhysicalDeviceFeatures features{};
@@ -805,6 +860,7 @@ void VulkanEngine::m_initSwapchain()
     depthImage.imageExtent = drawImageExtent;
     VkImageUsageFlags depthImageUsages{};
     depthImageUsages |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+    depthImageUsages |= VK_IMAGE_USAGE_SAMPLED_BIT; // Sampled by DepthPyramid in HZB pass
     VkImageCreateInfo depthImageInfo = vkinit::image_create_info(depthImage.imageFormat, depthImageUsages, depthImage.imageExtent);
     vmaCreateImage(vmaAllocator, &depthImageInfo, &imageAllocInfo, &depthImage.image, &depthImage.allocation, nullptr);
     VkImageViewCreateInfo depthViewInfo = vkinit::imageview_create_info(depthImage.imageFormat, depthImage.image, VK_IMAGE_ASPECT_DEPTH_BIT);
@@ -999,6 +1055,7 @@ void VulkanEngine::m_initPasses()
     MarchingCubesPass::Init(this);
     CircleGridPlanePass::Init(this);
     ChunkVisualizationPass::Init(this);
+    HZBDownSamplePass::Init(this);
 }
 
 void VulkanEngine::m_clearPassResources()
@@ -1006,6 +1063,7 @@ void VulkanEngine::m_clearPassResources()
     MarchingCubesPass::ClearResources(this);
     CircleGridPlanePass::ClearResources(this);
     ChunkVisualizationPass::ClearResources(this);
+    HZBDownSamplePass::ClearResources(this);
 }
 
 void VulkanEngine::m_initMaterialLayouts()
