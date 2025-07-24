@@ -30,6 +30,7 @@ public:
 	static void Init(VulkanEngine* engine);
 	static void Execute(VulkanEngine* engine, VkCommandBuffer cmd);
 	static void UpdateMCSettings(const MCSettings& mcSettings); // Updates the mcSettings in the Push Constants
+	static void SetDepthPyramidBinding(VulkanEngine* engine, VkImageView depthPyramidView, VkSampler depthPyramidSampler);
 	static void SetVoxelBufferDeviceAddress(const VkDeviceAddress& voxelBufferDeviceAddress);
 	static void SetGridCornerPositions(const glm::vec3& lowerCornerPos, const glm::vec3& upperCornerPos);
 	static void ClearResources(VulkanEngine* engine);
@@ -37,6 +38,7 @@ private:
 	static VkPipeline Pipeline;
 	static VkPipelineLayout PipelineLayout;
 	static VkDescriptorSet MCDescriptorSet; // set=1
+	static VkDescriptorSetLayout MCDescriptorSetLayout; // Vulkan complains when layout is deleted. It is a false positive but anyways. (it complains in only some passes I have no idea why yet)
 	// Resources
 	static AllocatedBuffer MCLookupTableBuffer; // set=1 binding=0 uniform buffer
 	static MCPushConstants PushConstants; // MC Settings are kept track of via PushConstants. Engine can modify this via Update functions

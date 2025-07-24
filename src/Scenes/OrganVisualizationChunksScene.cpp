@@ -92,6 +92,8 @@ void OrganVisualizationChunksScene::load(VulkanEngine* engine)
 
     // Set attachment clear color
     pEngine->setColorAttachmentClearColor(VkClearValue{ 0.6f, 0.9f, 1.0f, 1.0f });
+
+    MarchingCubesPass::SetDepthPyramidBinding(pEngine, HZBDownSamplePass::GetDepthPyramidImageView(), HZBDownSamplePass::GetDepthPyramidSampler());
 }
 
 void OrganVisualizationChunksScene::processSDLEvents(SDL_Event& e)
@@ -166,13 +168,18 @@ void OrganVisualizationChunksScene::drawFrame(VkCommandBuffer cmd)
         ChunkVisualizationPass::Execute(pEngine, cmd, chunkedVolumeData->getNumChunksFlat(), 3.0f);
     }
     
+    // TODO: Tidy this mess up
     //executeChunksSorted ? executeMCSorted(cmd) : executeMCUnsorted(cmd);
     executeMCLoadOnce(cmd);
 }
 
+void OrganVisualizationChunksScene::performPreRenderPassOps(VkCommandBuffer cmd)
+{
+}
+
 void OrganVisualizationChunksScene::performPostRenderPassOps(VkCommandBuffer cmd)
 {
-    HZBDownSamplePass::CopyDepthImage(pEngine, cmd);
+    HZBDownSamplePass::Execute(pEngine, cmd);
 }
 
 OrganVisualizationChunksScene::~OrganVisualizationChunksScene()

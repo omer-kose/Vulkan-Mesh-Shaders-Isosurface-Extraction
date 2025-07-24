@@ -17,6 +17,7 @@ public:
 	virtual void handleUI() override; // Add UI field in ImGUI for scene parameters
 	virtual void update() override; // called in engine update
 	virtual void drawFrame(VkCommandBuffer cmd) override; // called by drawing logic in engine to draw the scene
+	virtual void performPreRenderPassOps(VkCommandBuffer cmd); // called before drawFrame to perform any operations that would like to be done after rendering 
 	virtual void performPostRenderPassOps(VkCommandBuffer cmd); // called after drawFrame to perform any operations that would like to be done after rendering 
 	virtual ~OrganVisualizationChunksScene();
 private:

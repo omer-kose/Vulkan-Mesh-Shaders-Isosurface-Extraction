@@ -29,6 +29,9 @@ void OrganVisualizationScene::load(VulkanEngine* engine)
 
     // Set Grid Plane height
     CircleGridPlanePass::SetPlaneHeight(-0.1f);
+
+    MarchingCubesPass::SetDepthPyramidBinding(pEngine, HZBDownSamplePass::GetDepthPyramidImageView(), HZBDownSamplePass::GetDepthPyramidSampler());
+
 }
 
 void OrganVisualizationScene::processSDLEvents(SDL_Event& e)
@@ -97,9 +100,14 @@ void OrganVisualizationScene::drawFrame(VkCommandBuffer cmd)
     MarchingCubesPass::Execute(pEngine, cmd);
 }
 
-void OrganVisualizationScene::performPostRenderPassOps(VkCommandBuffer cmd)
+void OrganVisualizationScene::performPreRenderPassOps(VkCommandBuffer cmd)
 {
     return;
+}  
+
+void OrganVisualizationScene::performPostRenderPassOps(VkCommandBuffer cmd)
+{
+    HZBDownSamplePass::Execute(pEngine, cmd);
 }
 
 OrganVisualizationScene::~OrganVisualizationScene()

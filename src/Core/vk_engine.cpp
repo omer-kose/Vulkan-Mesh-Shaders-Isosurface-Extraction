@@ -216,6 +216,8 @@ void VulkanEngine::drawMain(VkCommandBuffer cmd)
     // When rendering geometry we need to use COLOR_ATTACHMENT_OPTIMAL as it is the most optimal layout for rendering with graphics pipeline
     vkutil::transitionImage(cmd, drawImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
+    activeScene->performPreRenderPassOps(cmd);
+
     // Begin a renderpass connected to the draw image
     VkRenderingAttachmentInfo colorAttachment = vkinit::attachment_info(drawImage.imageView, &colorAttachmentClearValue, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     VkRenderingAttachmentInfo depthAttachment = vkinit::depth_attachment_info(depthImage.imageView, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
@@ -758,11 +760,6 @@ void VulkanEngine::m_initVulkan()
     features12.uniformAndStorageBuffer8BitAccess = true;
     features12.scalarBlockLayout = true;
     features12.samplerFilterMinmax = true;
-    features12.descriptorBindingSampledImageUpdateAfterBind = true;
-    features12.descriptorBindingPartiallyBound = true;
-    features12.descriptorBindingVariableDescriptorCount = true;
-    features12.descriptorBindingUpdateUnusedWhilePending = true;
-    features12.descriptorBindingStorageImageUpdateAfterBind = true;
 
     // Vulkan 1.0 features
     VkPhysicalDeviceFeatures features{};
@@ -781,6 +778,7 @@ void VulkanEngine::m_initVulkan()
         .set_required_features(features)
         .add_required_extension(VK_EXT_MESH_SHADER_EXTENSION_NAME)
         .add_required_extension_features(meshShaderFeatures)
+        .add_desired_extension(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME)
         .set_surface(surface)
         .select()
         .value();

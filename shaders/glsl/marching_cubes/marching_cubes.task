@@ -7,6 +7,8 @@
 
 #include "input_structures.h"
 
+layout(set = 1, binding = 1) uniform sampler2D depthPyramid;
+
 taskPayloadSharedEXT TaskPayload taskPayload;
 
 shared uint values[BLOCK_PLUS_1][BLOCK_PLUS_1][BLOCK_PLUS_1]; // intermediate values for the (n+1)x(n+1)x(n+1) corners of nxnxn cubes (n is either 4 or 8)

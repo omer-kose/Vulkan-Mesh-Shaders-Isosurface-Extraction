@@ -24,6 +24,8 @@ struct DescriptorWriter
 
 	void clear();
 	void updateSet(VkDevice device, VkDescriptorSet set);
+
+	void pushDescriptorSet(VkCommandBuffer cmd, VkPipelineBindPoint pipelineBindPoint, VkPipelineLayout pipelineLayout, uint32_t setIdx); // used to record descriptor updates into the command buffer.
 };
 
 struct DescriptorAllocator

@@ -15,13 +15,13 @@ public:
 	static void Init(VulkanEngine* engine);
 	static void Execute(VulkanEngine* engine, VkCommandBuffer cmd);
 	static void Update();
-	static void CopyDepthImage(VulkanEngine* engine, VkCommandBuffer cmd);
+	static VkImageView GetDepthPyramidImageView();
+	static VkSampler GetDepthPyramidSampler();
 	static void ClearResources(VulkanEngine* engine);
 private:
 	static VkPipeline Pipeline;
 	static VkPipelineLayout PipelineLayout;
-	static VkDescriptorSet DescriptorSet;
-	static VkDescriptorSetLayout DescriptorSetLayout; // I have no idea why but for this sample pass only, vulkan complains when layout is deleted while set is in use.
+	static VkDescriptorSetLayout DescriptorSetLayout; // Vulkan complains when layout is deleted while set is in use (happens if pool is created with the flag update after bind)
 	static DescriptorWriter Writer;
 	static HZBDownSamplePushConstants PushConstants;
 	// Resources

@@ -7,7 +7,6 @@
 
 VkPipeline HZBDownSamplePass::Pipeline = VK_NULL_HANDLE;
 VkPipelineLayout HZBDownSamplePass::PipelineLayout = VK_NULL_HANDLE;
-VkDescriptorSet HZBDownSamplePass::DescriptorSet = VK_NULL_HANDLE;
 VkDescriptorSetLayout HZBDownSamplePass::DescriptorSetLayout = VK_NULL_HANDLE;
 DescriptorWriter HZBDownSamplePass::Writer = {};
 HZBDownSamplePass::HZBDownSamplePushConstants HZBDownSamplePass::PushConstants = {};
@@ -103,7 +102,7 @@ void HZBDownSamplePass::Init(VulkanEngine* engine)
 	DepthPyramidLevels = getImageMipLevels(DepthPyramidWidth, DepthPyramidHeight);
 
 	// createImage automatically creates correct amount of mipLevels (uses the same formula as above)
-	DepthPyramid = engine->createImage(VkExtent3D{DepthPyramidWidth, DepthPyramidHeight, 1}, VK_FORMAT_R32_SFLOAT, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, true);
+	DepthPyramid = engine->createImage(VkExtent3D{DepthPyramidWidth, DepthPyramidHeight, 1}, VK_FORMAT_R32_SFLOAT, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, true);
 	DepthPyramidMips.resize(DepthPyramidLevels);
 
 	for(size_t i = 0; i < DepthPyramidLevels; ++i)
@@ -124,20 +123,13 @@ void HZBDownSamplePass::Init(VulkanEngine* engine)
 	// Push Constant (only contains the size of the mip level that is going to be written on)
 	VkPushConstantRange pcRange{ .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT , .offset = 0, .size = sizeof(PushConstants) };
 
-	// Set descriptor binding flags to be able to update descriptors while the command buffer is in use. For each binding, a binding flag must be set
-	VkDescriptorBindingFlags bindingFlag = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT | VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT;
-	VkDescriptorBindingFlags bindingFlags[] = {bindingFlag, bindingFlag};
-	VkDescriptorSetLayoutBindingFlagsCreateInfo setBindingFlags = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
-	setBindingFlags.bindingCount = 2;
-	setBindingFlags.pBindingFlags = bindingFlags;
-
 	// Set descriptor sets
 	DescriptorLayoutBuilder layoutBuilder;
 	layoutBuilder.addBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER); // upper mip level to be sampled from
 	layoutBuilder.addBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE); // Output mip level to be written on
-	DescriptorSetLayout = layoutBuilder.build(engine->device, VK_SHADER_STAGE_COMPUTE_BIT, VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT, (void*)(&setBindingFlags));
+	DescriptorSetLayout = layoutBuilder.build(engine->device, VK_SHADER_STAGE_COMPUTE_BIT, VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR);
 	// Allocate the descriptor set and update
-	DescriptorSet = engine->globalDescriptorAllocator.allocate(engine->device, DescriptorSetLayout);
+	//DescriptorSet = engine->globalDescriptorAllocator.allocate(engine->device, DescriptorSetLayout);
 
 	VkPipelineLayoutCreateInfo pipelineLayoutInfo = vkinit::pipeline_layout_create_info();
 	pipelineLayoutInfo.pushConstantRangeCount = 1;
@@ -147,46 +139,57 @@ void HZBDownSamplePass::Init(VulkanEngine* engine)
 
 	VK_CHECK(vkCreatePipelineLayout(engine->device, &pipelineLayoutInfo, nullptr, &PipelineLayout));
 
-
 	VkPipelineShaderStageCreateInfo shaderStageInfo = vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_COMPUTE_BIT, computeShader);
 	VkComputePipelineCreateInfo pipelineInfo = { .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO, .pNext = nullptr };
 	pipelineInfo.layout = PipelineLayout;
 	pipelineInfo.stage = shaderStageInfo;
 
-	VkPipeline converterPipeline;
 	VK_CHECK(vkCreateComputePipelines(engine->device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &Pipeline));
 
 	vkDestroyShaderModule(engine->device, computeShader, nullptr);
+
+	// TODO: Could be created in a specific layout I believe
+	engine->immediateSubmit([&](VkCommandBuffer cmd) {
+		// Transition DepthPyramid image to correct format
+		vkutil::transitionImage(cmd, DepthPyramid.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+	});
 }
 
 void HZBDownSamplePass::Execute(VulkanEngine* engine, VkCommandBuffer cmd)
 {
-	// Transition DepthPyramid image to correct format
-	VkImageMemoryBarrier2 depthPyramidBarrier = imageBarrier(DepthPyramid.image,
-			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
-			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_WRITE_BIT, VK_IMAGE_LAYOUT_GENERAL);
+	// Transition the images to proper layouts
+	VkImageMemoryBarrier2 depthBarriers[] = {
+		imageBarrier(engine->depthImage.image,
+			VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+			VK_IMAGE_ASPECT_DEPTH_BIT),
+		imageBarrier(DepthPyramid.image,
+			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_GENERAL,
+			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_WRITE_BIT, VK_IMAGE_LAYOUT_GENERAL)
+	};
 
-	pipelineBarrier(cmd, 0, 0, nullptr, 1, &depthPyramidBarrier);
+	pipelineBarrier(cmd, 0, 0, nullptr, 2, depthBarriers);
 
 	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, Pipeline);
-
+	
 	// Hierarchically downsample from base image to all the mips
-	for(uint32_t i = 0; i < DepthPyramidLevels - 1; ++i)
+	for(uint32_t i = 0; i < DepthPyramidLevels; ++i)
 	{
-		// Bind descriptors
-		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, PipelineLayout, 0, 1, &DescriptorSet, 0, nullptr);
+		VkImageView inImage = i != 0 ? DepthPyramidMips[i - 1] : engine->depthImage.imageView;
+		VkImageLayout inLayout = i != 0 ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 		// Update descriptor sets
+		Writer.clear();
 		// Source level
-		Writer.writeImage(0, DepthPyramidMips[i], DepthPyramidImageSampler, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+		Writer.writeImage(0, inImage, DepthPyramidImageSampler, inLayout, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
 		// Destination Level
-		Writer.writeImage(1, DepthPyramidMips[i+1], VK_NULL_HANDLE, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
-		Writer.updateSet(engine->device, DescriptorSet);
+		Writer.writeImage(1, DepthPyramidMips[i], VK_NULL_HANDLE, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
+		Writer.pushDescriptorSet(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, PipelineLayout, 0);
 
 		// Update and push constants
 		uint32_t levelWidth = std::max(1u, DepthPyramidWidth >> i);
 		uint32_t levelHeight = std::max(1u, DepthPyramidHeight >> i);
-		
-		PushConstants.outImageSize = glm::uvec2(levelWidth, levelHeight);
+
+		PushConstants.outImageSize = glm::vec2(levelWidth, levelHeight);
 		vkCmdPushConstants(cmd, PipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(HZBDownSamplePushConstants), &PushConstants);
 
 		vkCmdDispatch(cmd, ceilDiv(levelWidth, 32u), ceilDiv(levelHeight, 32u), 1u);
@@ -199,9 +202,9 @@ void HZBDownSamplePass::Execute(VulkanEngine* engine, VkCommandBuffer cmd)
 		pipelineBarrier(cmd, 0, 0, nullptr, 1, &reduceBarrier);
 	}
 
-	// Put a barrier on the depth buffer to guarantee that downsampling is finished before the start of other rendering operations
+	// Transition back to original layouts;
 	VkImageMemoryBarrier2 depthWriteBarrier = imageBarrier(engine->depthImage.image,
-		VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+		VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 		VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
 		VK_IMAGE_ASPECT_DEPTH_BIT);
 
@@ -213,46 +216,15 @@ void HZBDownSamplePass::Update()
 {
 }
 
-/*
-	Copy engine's main depth buffer into depth pyramid's base level. 
-*/
-void HZBDownSamplePass::CopyDepthImage(VulkanEngine* engine, VkCommandBuffer cmd)
+VkImageView HZBDownSamplePass::GetDepthPyramidImageView()
 {
-	// TODO: Not needed remove
-	// Transition DepthPyramid image to correct format
-	VkImageMemoryBarrier2 depthPyramidBarrier = imageBarrier(DepthPyramid.image,
-		VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
-		VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_WRITE_BIT, VK_IMAGE_LAYOUT_GENERAL);
-
-	pipelineBarrier(cmd, 0, 0, nullptr, 1, &depthPyramidBarrier);
-
-	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, Pipeline);
-
-	// Transition the images to proper layouts
-	depthTransition(cmd, engine->depthImage.image, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT);
-	
-	// Dispatch the downsample kernel with src depth image and target depth pyramid base mip level
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, PipelineLayout, 0, 1, &DescriptorSet, 0, nullptr);
-	Writer.writeImage(0, engine->depthImage.imageView, DepthPyramidImageSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-	Writer.writeImage(1, DepthPyramidMips[0], VK_NULL_HANDLE, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
-	Writer.updateSet(engine->device, DescriptorSet);
-	// Update and push constants
-	uint32_t levelWidth = std::max(1u, DepthPyramidWidth);
-	uint32_t levelHeight = std::max(1u, DepthPyramidHeight);
-	PushConstants.outImageSize = glm::uvec2(levelWidth, levelHeight);
-	vkCmdPushConstants(cmd, PipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(HZBDownSamplePushConstants), &PushConstants);
-	vkCmdDispatch(cmd, ceilDiv(levelWidth, 32u), ceilDiv(levelHeight, 32u), 1u);
-	VkImageMemoryBarrier2 reduceBarrier = imageBarrier(DepthPyramid.image,
-		VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_WRITE_BIT, VK_IMAGE_LAYOUT_GENERAL,
-		VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_GENERAL,
-		VK_IMAGE_ASPECT_COLOR_BIT, 0, 1);
-
-	pipelineBarrier(cmd, 0, 0, nullptr, 1, &reduceBarrier);
-
-	// Transition back to original layouts;
-	depthTransition(cmd, engine->depthImage.image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT);
+	return DepthPyramid.imageView;
 }
 
+VkSampler HZBDownSamplePass::GetDepthPyramidSampler()
+{
+	return DepthPyramidImageSampler;
+}
 
 void HZBDownSamplePass::ClearResources(VulkanEngine* engine)
 {
