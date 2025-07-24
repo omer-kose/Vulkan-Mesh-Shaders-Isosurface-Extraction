@@ -9,7 +9,7 @@ class HZBDownSamplePass
 public:
 	struct HZBDownSamplePushConstants
 	{
-		glm::uvec2 outImageSize;
+		glm::vec2 outImageSize;
 	};
 public:
 	static void Init(VulkanEngine* engine);
