@@ -131,6 +131,17 @@ void MarchingCubesPass::SetGridCornerPositions(const glm::vec3& lowerCornerPos, 
     PushConstants.upperCornerPos = upperCornerPos;
 }
 
+void MarchingCubesPass::SetCameraZNear(float zNear)
+{
+    PushConstants.zNear = zNear;
+}
+
+void MarchingCubesPass::SetDepthPyramidSizes(uint32_t depthPyramidWidth, uint32_t depthPyramidHeight)
+{
+    PushConstants.depthPyramidWidth = depthPyramidWidth;
+    PushConstants.depthPyramidHeight = depthPyramidHeight;
+}
+
 void MarchingCubesPass::ClearResources(VulkanEngine* engine)
 {
     vkDestroyDescriptorSetLayout(engine->device, MCDescriptorSetLayout, nullptr);

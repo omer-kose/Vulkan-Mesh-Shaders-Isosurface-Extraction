@@ -17,6 +17,8 @@ public:
 	static void Update();
 	static VkImageView GetDepthPyramidImageView();
 	static VkSampler GetDepthPyramidSampler();
+	static uint32_t GetDepthPyramidWidth();
+	static uint32_t GetDepthPyramidHeight();
 	static void ClearResources(VulkanEngine* engine);
 private:
 	static VkPipeline Pipeline;

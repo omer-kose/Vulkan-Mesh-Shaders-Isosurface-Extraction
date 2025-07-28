@@ -226,6 +226,16 @@ VkSampler HZBDownSamplePass::GetDepthPyramidSampler()
 	return DepthPyramidImageSampler;
 }
 
+uint32_t HZBDownSamplePass::GetDepthPyramidWidth()
+{
+	return DepthPyramidWidth;
+}
+
+uint32_t HZBDownSamplePass::GetDepthPyramidHeight()
+{
+	return DepthPyramidHeight;
+}
+
 void HZBDownSamplePass::ClearResources(VulkanEngine* engine)
 {
 	vkDestroyDescriptorSetLayout(engine->device, DescriptorSetLayout, nullptr);

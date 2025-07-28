@@ -94,6 +94,7 @@ void OrganVisualizationChunksScene::load(VulkanEngine* engine)
     pEngine->setColorAttachmentClearColor(VkClearValue{ 0.6f, 0.9f, 1.0f, 1.0f });
 
     MarchingCubesPass::SetDepthPyramidBinding(pEngine, HZBDownSamplePass::GetDepthPyramidImageView(), HZBDownSamplePass::GetDepthPyramidSampler());
+    MarchingCubesPass::SetDepthPyramidSizes(HZBDownSamplePass::GetDepthPyramidWidth(), HZBDownSamplePass::GetDepthPyramidHeight());
 }
 
 void OrganVisualizationChunksScene::processSDLEvents(SDL_Event& e)
@@ -138,10 +139,11 @@ void OrganVisualizationChunksScene::update()
     mainCamera.update();
 
     sceneData.view = mainCamera.getViewMatrix();
+    float zNear = 0.1f;
 
     VkExtent2D windowExtent = pEngine->getWindowExtent();
     // camera projection
-    sceneData.proj = glm::perspectiveRH_ZO(glm::radians(45.f), (float)windowExtent.width / (float)windowExtent.height, 0.1f, 10000.f);
+    sceneData.proj = glm::perspectiveRH_ZO(glm::radians(45.f), (float)windowExtent.width / (float)windowExtent.height, zNear, 10000.f);
 
     // invert the Y direction on projection matrix so that we are more similar
     // to opengl and gltf axis
@@ -156,6 +158,7 @@ void OrganVisualizationChunksScene::update()
 
     // Update the MC params (cheap operation but could be checked if there is any change)
     MarchingCubesPass::UpdateMCSettings(mcSettings);
+    MarchingCubesPass::SetCameraZNear(zNear);
 
     ChunkVisualizationPass::SetInputIsoValue(mcSettings.isoValue);
 }

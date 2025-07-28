@@ -13,9 +13,40 @@ taskPayloadSharedEXT TaskPayload taskPayload;
 
 shared uint values[BLOCK_PLUS_1][BLOCK_PLUS_1][BLOCK_PLUS_1]; // intermediate values for the (n+1)x(n+1)x(n+1) corners of nxnxn cubes (n is either 4 or 8)
 
+bool isVisible()
+{
+	vec3 center = (pushConstants.lowerCornerPos + pushConstants.upperCornerPos) / 2.0f;
+	center = (sceneData.view * vec4(center, 1)).xyz;
+	float radius = length(pushConstants.upperCornerPos - pushConstants.lowerCornerPos) / 2.0f; 
+	vec4 aabb;
+	bool visible = true;
+	float P00 = sceneData.proj[0][0];
+	float P11 = -sceneData.proj[1][1]; // Correct y-flip
+	if (tryCalculateSphereBounds(center, radius, pushConstants.zNear, P00, P11, aabb))
+	{
+		float width = (aabb.z - aabb.x) * pushConstants.depthPyramidWidth;
+		float height = (aabb.w - aabb.y) * pushConstants.depthPyramidHeight;
+
+		float level = floor(log2(max(width, height)));
+
+		// Sampler is set up to do min reduction, so this computes the minimum depth of a 2x2 texel quad
+		float depth = textureLod(depthPyramid, (aabb.xy + aabb.zw) * 0.5, level).x;
+		float depthSphere = pushConstants.zNear / (-center.z - radius);
+
+		visible = depthSphere > depth;
+	}
+
+	return visible;
+}
+
 layout(local_size_x = 32) in;
 void main()
 {
+	if(!isVisible())
+	{
+		return;
+	}
+
 	uint threadID = gl_LocalInvocationID.x;
 	uint workgroupID = gl_WorkGroupID.x;
 

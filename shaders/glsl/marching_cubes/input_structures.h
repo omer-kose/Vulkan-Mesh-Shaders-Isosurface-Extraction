@@ -37,6 +37,9 @@ layout(push_constant, scalar) uniform PushConstants
 	// Positional Limits of the Grid
 	vec3 lowerCornerPos;
 	vec3 upperCornerPos;
+	float zNear;
+	uint depthPyramidWidth;
+	uint depthPyramidHeight;
 } pushConstants;
 
 // Task shader to mesh shader 
@@ -61,4 +64,34 @@ struct TaskPayload
 float voxelValue(uvec3 idx)
 {
 	return pushConstants.voxelBuffer.voxels[idx.x + pushConstants.mcSettings.shellSize.x * (idx.y + pushConstants.mcSettings.shellSize.y * idx.z)];
+}
+
+bool tryCalculateSphereBounds(
+	vec3 _center,
+	float _radius,
+	float _zNear,
+	float _P00,
+	float _P11,
+	out vec4 _AABB)
+{
+	if(-_center.z < _radius + _zNear)
+	{
+		return false;
+	}
+
+	vec2 centerXZ = -_center.xz;
+	vec2 vX = vec2(sqrt(dot(centerXZ, centerXZ) - _radius * _radius), _radius);
+	vec2 minX = mat2(vX.x, vX.y, -vX.y, vX.x) * centerXZ;
+	vec2 maxX = mat2(vX.x, -vX.y, vX.y, vX.x) * centerXZ;
+
+	vec2 centerYZ = -_center.yz;
+	vec2 vY = vec2(sqrt(dot(centerYZ, centerYZ) - _radius * _radius), _radius);
+	vec2 minY = mat2(vY.x, vY.y, -vY.y, vY.x) * centerYZ;
+	vec2 maxY = mat2(vY.x, -vY.y, vY.y, vY.x) * centerYZ;
+
+	_AABB = 0.5 - 0.5 * vec4(
+		minX.x / minX.y * _P00, minY.x / minY.y * _P11,
+		maxX.x / maxX.y * _P00, maxY.x / maxY.y * _P11);
+
+	return true;
 }

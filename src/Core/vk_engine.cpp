@@ -1226,7 +1226,7 @@ void VulkanEngine::m_initGlobalSceneBuffer()
 void VulkanEngine::m_initSceneInformation()
 {
     // Harcoding the scene names. 
-    sceneNames = { "Organ Visualization", "Organ Visualization Chunks" };
+    sceneNames = { "Organ Visualization Chunks" };
     selectedSceneID = 0;
     loadScene(selectedSceneID);
 }
@@ -1238,10 +1238,6 @@ void VulkanEngine::loadScene(uint32_t sceneID)
     switch(sceneID)
     {
         case 0:
-            activeScene = std::make_unique<OrganVisualizationScene>();
-            activeScene->load(this);
-            break;
-        case 1:
             activeScene = std::make_unique<OrganVisualizationChunksScene>();
             activeScene->load(this);
             break;

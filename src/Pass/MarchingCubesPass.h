@@ -24,6 +24,9 @@ public:
 		// Positional Limits of the Grid
 		glm::vec3 lowerCornerPos;
 		glm::vec3 upperCornerPos;
+		float zNear;
+		uint32_t depthPyramidWidth;
+		uint32_t depthPyramidHeight;
 	};
 
 public:
@@ -33,6 +36,8 @@ public:
 	static void SetDepthPyramidBinding(VulkanEngine* engine, VkImageView depthPyramidView, VkSampler depthPyramidSampler);
 	static void SetVoxelBufferDeviceAddress(const VkDeviceAddress& voxelBufferDeviceAddress);
 	static void SetGridCornerPositions(const glm::vec3& lowerCornerPos, const glm::vec3& upperCornerPos);
+	static void SetCameraZNear(float zNear);
+	static void SetDepthPyramidSizes(uint32_t depthPyramidWidth, uint32_t depthPyramidHeight);
 	static void ClearResources(VulkanEngine* engine);
 private:
 	static VkPipeline Pipeline;
