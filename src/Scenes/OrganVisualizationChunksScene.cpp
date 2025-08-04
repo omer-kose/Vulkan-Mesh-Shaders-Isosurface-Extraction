@@ -50,15 +50,15 @@ void insertMeshShaderToTransferBarrier(
 {
     VkBufferMemoryBarrier bufferBarrier = {
         .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-        .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
-        .dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT,
+        .srcAccessMask = VK_ACCESS_SHADER_READ_BIT,
+        .dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .buffer = buffer,
         .offset = offset,
         .size = size
     };
-
+    
     vkCmdPipelineBarrier(
         commandBuffer,
         VK_PIPELINE_STAGE_MESH_SHADER_BIT_EXT,    // Source: Mesh shader
@@ -139,11 +139,13 @@ void OrganVisualizationChunksScene::update()
     mainCamera.update();
 
     sceneData.view = mainCamera.getViewMatrix();
+    constexpr float fov = glm::radians(45.0f);
     float zNear = 0.1f;
+    float zFar = 10000.f;
 
     VkExtent2D windowExtent = pEngine->getWindowExtent();
-    // camera projection
-    sceneData.proj = glm::perspectiveRH_ZO(glm::radians(45.f), (float)windowExtent.width / (float)windowExtent.height, zNear, 10000.f);
+
+    sceneData.proj = glm::perspectiveRH_ZO(fov, (float)windowExtent.width / (float)windowExtent.height, zFar, zNear); // reverting zFar and zNear as I use a inverted depth buffer
 
     // invert the Y direction on projection matrix so that we are more similar
     // to opengl and gltf axis
@@ -171,9 +173,15 @@ void OrganVisualizationChunksScene::drawFrame(VkCommandBuffer cmd)
         ChunkVisualizationPass::Execute(pEngine, cmd, chunkedVolumeData->getNumChunksFlat(), 3.0f);
     }
     
-    // TODO: Tidy this mess up
-    //executeChunksSorted ? executeMCSorted(cmd) : executeMCUnsorted(cmd);
-    executeMCLoadOnce(cmd);
+
+    if(dataFitsInGPU)
+    {
+        executeMCLoadOnce(cmd);
+    }
+    else
+    {
+        executeChunksSorted ? executeMCSorted(cmd) : executeMCUnsorted(cmd);
+    }
 }
 
 void OrganVisualizationChunksScene::performPreRenderPassOps(VkCommandBuffer cmd)
@@ -441,7 +449,7 @@ void OrganVisualizationChunksScene::executeMCUnsorted(VkCommandBuffer cmd) const
         vkCmdCopyBuffer(cmd, chunksStagingBuffer, voxelChunksBuffer.buffer, numChunksToBeProcessed, copyRegions.data());
 
         // Pipeline Barrier between buffer transfer and mesh shader dispatch
-        insertTransferToMeshShaderBarrier(cmd, voxelChunksBuffer.buffer);
+        insertTransferToMeshShaderBarrier(cmd, voxelChunksBuffer.buffer, 0, numChunksInGpu * chunkSizeInBytes);
 
         vkCmdBeginRendering(cmd, &renderInfo);
 
@@ -457,7 +465,7 @@ void OrganVisualizationChunksScene::executeMCUnsorted(VkCommandBuffer cmd) const
         if(i != numBatches - 1)
         {
             vkCmdEndRendering(cmd);
-            insertMeshShaderToTransferBarrier(cmd, voxelChunksBuffer.buffer);
+            insertMeshShaderToTransferBarrier(cmd, voxelChunksBuffer.buffer, 0, numChunksInGpu * chunkSizeInBytes);
             vkCmdBeginRendering(cmd, &renderInfo);
         }
 

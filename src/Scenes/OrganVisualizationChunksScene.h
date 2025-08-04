@@ -42,7 +42,7 @@ private:
 	VkDeviceAddress voxelChunksBufferBaseAddress;
 	AllocatedBuffer chunkVisualizationBuffer;
 	VkDeviceAddress chunkVisualizationBufferAddress;
-	size_t numChunksInGpu = 32;
+	size_t numChunksInGpu = 256;
 	bool showChunks = false;
 	bool executeChunksSorted = false;
 	bool dataFitsInGPU = true;

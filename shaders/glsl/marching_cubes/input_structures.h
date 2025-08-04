@@ -66,32 +66,33 @@ float voxelValue(uvec3 idx)
 	return pushConstants.voxelBuffer.voxels[idx.x + pushConstants.mcSettings.shellSize.x * (idx.y + pushConstants.mcSettings.shellSize.y * idx.z)];
 }
 
-bool tryCalculateSphereBounds(
-	vec3 _center,
-	float _radius,
-	float _zNear,
-	float _P00,
-	float _P11,
-	out vec4 _AABB)
+bool projectBox(vec3 bmin, vec3 bmax, float znear, mat4 viewProjection, out vec4 aabb)
 {
-	if(-_center.z < _radius + _zNear)
-	{
-		return false;
-	}
+	vec4 SX = viewProjection * vec4(bmax.x - bmin.x, 0.0, 0.0, 0.0);
+	vec4 SY = viewProjection * vec4(0.0, bmax.y - bmin.y, 0.0, 0.0);
+	vec4 SZ = viewProjection * vec4(0.0, 0.0, bmax.z - bmin.z, 0.0);
 
-	vec2 centerXZ = -_center.xz;
-	vec2 vX = vec2(sqrt(dot(centerXZ, centerXZ) - _radius * _radius), _radius);
-	vec2 minX = mat2(vX.x, vX.y, -vX.y, vX.x) * centerXZ;
-	vec2 maxX = mat2(vX.x, -vX.y, vX.y, vX.x) * centerXZ;
+	vec4 P0 = viewProjection * vec4(bmin.x, bmin.y, bmin.z, 1.0);
+	vec4 P1 = P0 + SZ;
+	vec4 P2 = P0 + SY;
+	vec4 P3 = P2 + SZ;
+	vec4 P4 = P0 + SX;
+	vec4 P5 = P4 + SZ;
+	vec4 P6 = P4 + SY;
+	vec4 P7 = P6 + SZ;
 
-	vec2 centerYZ = -_center.yz;
-	vec2 vY = vec2(sqrt(dot(centerYZ, centerYZ) - _radius * _radius), _radius);
-	vec2 minY = mat2(vY.x, vY.y, -vY.y, vY.x) * centerYZ;
-	vec2 maxY = mat2(vY.x, -vY.y, vY.y, vY.x) * centerYZ;
+	if(min(P0.w, min(P1.w, min(P2.w, min(P3.w, min(P4.w, min(P5.w, min(P6.w, P7.w))))))) < znear) return false;
 
-	_AABB = 0.5 - 0.5 * vec4(
-		minX.x / minX.y * _P00, minY.x / minY.y * _P11,
-		maxX.x / maxX.y * _P00, maxY.x / maxY.y * _P11);
+	aabb.xy = min(
+		P0.xy / P0.w, min(P1.xy / P1.w, min(P2.xy / P2.w, min(P3.xy / P3.w,
+		min(P4.xy / P4.w, min(P5.xy / P5.w, min(P6.xy / P6.w, P7.xy / P7.w)))))));
+	aabb.zw = max(
+		P0.xy / P0.w, max(P1.xy / P1.w, max(P2.xy / P2.w, max(P3.xy / P3.w,
+		max(P4.xy / P4.w, max(P5.xy / P5.w, max(P6.xy / P6.w, P7.xy / P7.w)))))));
+
+	// clip space -> uv space
+	aabb = aabb * vec4(0.5f, 0.5f, 0.5f, 0.5f) + vec4(0.5f);
 
 	return true;
 }
+
