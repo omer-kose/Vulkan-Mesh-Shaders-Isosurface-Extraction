@@ -28,7 +28,7 @@ VkDescriptorSetLayout DescriptorLayoutBuilder::build(VkDevice device, VkShaderSt
 	info.bindingCount = (uint32_t)bindings.size();
 	info.pBindings = bindings.data();
 	info.flags = flags;
-
+	
 	VkDescriptorSetLayout setLayout;
 	VK_CHECK(vkCreateDescriptorSetLayout(device, &info, nullptr, &setLayout));
 
@@ -88,6 +88,10 @@ void DescriptorWriter::updateSet(VkDevice device, VkDescriptorSet set)
 	vkUpdateDescriptorSets(device, (uint32_t)writes.size(), writes.data(), 0, nullptr);
 }
 
+void DescriptorWriter::pushDescriptorSet(VkCommandBuffer cmd, VkPipelineBindPoint pipelineBindPoint, VkPipelineLayout pipelineLayout, uint32_t setIdx)
+{
+	vkCmdPushDescriptorSetKHR(cmd, pipelineBindPoint, pipelineLayout, setIdx, (uint32_t)writes.size(), writes.data());
+}
 
 void DescriptorAllocator::initPool(VkDevice device, uint32_t maxSets, std::span<PoolSize> poolSizes)
 {

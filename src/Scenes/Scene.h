@@ -18,6 +18,8 @@ public:
 	virtual void handleUI() = 0; // Add UI field in ImGUI for scene parameters
 	virtual void update() = 0; // called in engine update
 	virtual void drawFrame(VkCommandBuffer cmd) = 0; // called by drawing logic in engine to draw the scene
+	virtual void performPreRenderPassOps(VkCommandBuffer cmd) = 0; // called before drawFrame to perform any operations that would like to be done after rendering 
+	virtual void performPostRenderPassOps(VkCommandBuffer cmd) = 0; // called after drawFrame to perform any operations that would like to be done after rendering 
 	virtual GPUSceneData getSceneData(); // Returns the GPUSceneData member to update the buffer stored in the engine
 	virtual ~Scene() = default;
 protected:

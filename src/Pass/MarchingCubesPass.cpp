@@ -8,6 +8,7 @@
 VkPipeline MarchingCubesPass::Pipeline = VK_NULL_HANDLE;
 VkPipelineLayout MarchingCubesPass::PipelineLayout = VK_NULL_HANDLE;
 VkDescriptorSet MarchingCubesPass::MCDescriptorSet = VK_NULL_HANDLE;
+VkDescriptorSetLayout MarchingCubesPass::MCDescriptorSetLayout= VK_NULL_HANDLE;
 AllocatedBuffer MarchingCubesPass::MCLookupTableBuffer = {};
 MarchingCubesPass::MCPushConstants MarchingCubesPass::PushConstants = {};
 
@@ -49,15 +50,15 @@ void MarchingCubesPass::Init(VulkanEngine* engine)
     // Set descriptor sets
     DescriptorLayoutBuilder layoutBuilder;
     layoutBuilder.addBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER); // MC Table (only used in the Mesh Shader)
-    VkDescriptorSetLayout mcSetLayout = layoutBuilder.build(engine->device, VK_SHADER_STAGE_MESH_BIT_EXT);
+    layoutBuilder.addBinding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER); // Depth Pyramid
+    MCDescriptorSetLayout = layoutBuilder.build(engine->device, VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT);
     // Allocate the descriptor set and update
-    MCDescriptorSet = engine->globalDescriptorAllocator.allocate(engine->device, mcSetLayout);
+    MCDescriptorSet = engine->globalDescriptorAllocator.allocate(engine->device, MCDescriptorSetLayout);
     DescriptorWriter writer;
     writer.writeBuffer(0, MCLookupTableBuffer.buffer, lookupTableSize, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
     writer.updateSet(engine->device, MCDescriptorSet);
-
     // 2 sets: 0 -> Scene Descriptor Set, 1 -> Pass Specific Descriptor Set
-    VkDescriptorSetLayout layouts[] = { engine->getSceneDescriptorLayout(), mcSetLayout };
+    VkDescriptorSetLayout layouts[] = { engine->getSceneDescriptorLayout(), MCDescriptorSetLayout };
 
     VkPipelineLayoutCreateInfo pipelineLayoutInfo = vkinit::pipeline_layout_create_info();
     pipelineLayoutInfo.pushConstantRangeCount = 1;
@@ -73,10 +74,10 @@ void MarchingCubesPass::Init(VulkanEngine* engine)
     pipelineBuilder.pushShaderStage(meshShader, VK_SHADER_STAGE_MESH_BIT_EXT);
     pipelineBuilder.pushShaderStage(fragmentShader, VK_SHADER_STAGE_FRAGMENT_BIT);
     pipelineBuilder.setPolygonMode(VK_POLYGON_MODE_FILL);
-    pipelineBuilder.setCullMode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
+    pipelineBuilder.setCullMode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
     pipelineBuilder.setMultiSamplingNone();
     pipelineBuilder.disableBlending();
-    pipelineBuilder.enableDepthTest(true, VK_COMPARE_OP_LESS_OR_EQUAL);
+    pipelineBuilder.enableDepthTest(true, VK_COMPARE_OP_GREATER_OR_EQUAL);
 
     // Render format
     pipelineBuilder.setColorAttachmentFormat(engine->drawImage.imageFormat);
@@ -89,7 +90,6 @@ void MarchingCubesPass::Init(VulkanEngine* engine)
     vkDestroyShaderModule(engine->device, taskShader, nullptr);
     vkDestroyShaderModule(engine->device, meshShader, nullptr);
     vkDestroyShaderModule(engine->device, fragmentShader, nullptr);
-    vkDestroyDescriptorSetLayout(engine->device, mcSetLayout, nullptr);
 }
 
 void MarchingCubesPass::Execute(VulkanEngine* engine, VkCommandBuffer cmd)
@@ -113,6 +113,13 @@ void MarchingCubesPass::UpdateMCSettings(const MCSettings& mcSettings)
     PushConstants.mcSettings = mcSettings;
 }
 
+void MarchingCubesPass::SetDepthPyramidBinding(VulkanEngine* engine, VkImageView depthPyramidView, VkSampler depthPyramidSampler)
+{
+    DescriptorWriter writer;
+    writer.writeImage(1, depthPyramidView, depthPyramidSampler, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+    writer.updateSet(engine->device, MCDescriptorSet);
+}
+
 void MarchingCubesPass::SetVoxelBufferDeviceAddress(const VkDeviceAddress& voxelBufferDeviceAddress)
 {
     PushConstants.voxelBufferDeviceAddress = voxelBufferDeviceAddress; // assigned once as the address does not change
@@ -124,8 +131,20 @@ void MarchingCubesPass::SetGridCornerPositions(const glm::vec3& lowerCornerPos, 
     PushConstants.upperCornerPos = upperCornerPos;
 }
 
+void MarchingCubesPass::SetCameraZNear(float zNear)
+{
+    PushConstants.zNear = zNear;
+}
+
+void MarchingCubesPass::SetDepthPyramidSizes(uint32_t depthPyramidWidth, uint32_t depthPyramidHeight)
+{
+    PushConstants.depthPyramidWidth = depthPyramidWidth;
+    PushConstants.depthPyramidHeight = depthPyramidHeight;
+}
+
 void MarchingCubesPass::ClearResources(VulkanEngine* engine)
 {
+    vkDestroyDescriptorSetLayout(engine->device, MCDescriptorSetLayout, nullptr);
     vkDestroyPipelineLayout(engine->device, PipelineLayout, nullptr);
     vkDestroyPipeline(engine->device, Pipeline, nullptr);
     engine->destroyBuffer(MCLookupTableBuffer);

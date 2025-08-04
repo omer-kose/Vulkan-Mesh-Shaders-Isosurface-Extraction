@@ -12,13 +12,21 @@
 
 #include <glm/gtx/transform.hpp>
 
-void OrganVisualizationScene::load(VulkanEngine* engine)
+void OrganVisualizationChunksScene::load(VulkanEngine* engine)
 {
     pEngine = engine;
 
     organNames = { "CThead", "Kidney" };
 
     loadData(0);
+
+    // Set Grid Plane Pass Settings
+    CircleGridPlanePass::SetPlaneHeight(-0.1f);
+
+    // Prepare Chunk Visualization
+    createChunkVisualizationBuffer(chunkedVolumeData->getChunks());
+    ChunkVisualizationPass::SetChunkBufferDeviceAddress(chunkVisualizationBufferAddress);
+    ChunkVisualizationPass::SetInputIsoValue(mcSettings.isoValue);
 
     // Set the camera
     mainCamera = Camera(glm::vec3(-2.0f, 0.0f, 2.0f), 0.0f, -45.0f);
@@ -27,16 +35,16 @@ void OrganVisualizationScene::load(VulkanEngine* engine)
     // Set attachment clear color
     pEngine->setColorAttachmentClearColor(VkClearValue{ 0.6f, 0.9f, 1.0f, 1.0f });
 
-    // Set Grid Plane height
-    CircleGridPlanePass::SetPlaneHeight(-0.1f);
+    MarchingCubesPass::SetDepthPyramidBinding(pEngine, HZBDownSamplePass::GetDepthPyramidImageView(), HZBDownSamplePass::GetDepthPyramidSampler());
+    MarchingCubesPass::SetDepthPyramidSizes(HZBDownSamplePass::GetDepthPyramidWidth(), HZBDownSamplePass::GetDepthPyramidHeight());
 }
 
-void OrganVisualizationScene::processSDLEvents(SDL_Event& e)
+void OrganVisualizationChunksScene::processSDLEvents(SDL_Event& e)
 {
     mainCamera.processSDLEvent(e);
 }
 
-void OrganVisualizationScene::handleUI()
+void OrganVisualizationChunksScene::handleUI()
 {
     ImGui::Begin("Marching Cubes Parameters");
 
@@ -63,18 +71,22 @@ void OrganVisualizationScene::handleUI()
     }
 
     ImGui::SliderFloat("Iso Value", &mcSettings.isoValue, 0.0f, 1.0f);
+    ImGui::Checkbox("Show Chunks", &showChunks);
     ImGui::End();
 }
 
-void OrganVisualizationScene::update()
+void OrganVisualizationChunksScene::update()
 {
     mainCamera.update();
 
     sceneData.view = mainCamera.getViewMatrix();
+    constexpr float fov = glm::radians(45.0f);
+    float zNear = 0.1f;
+    float zFar = 10000.f;
 
     VkExtent2D windowExtent = pEngine->getWindowExtent();
-    // camera projection
-    sceneData.proj = glm::perspectiveRH_ZO(glm::radians(45.f), (float)windowExtent.width / (float)windowExtent.height, 0.1f, 10000.f);
+
+    sceneData.proj = glm::perspectiveRH_ZO(fov, (float)windowExtent.width / (float)windowExtent.height, zFar, zNear); // reverting zFar and zNear as I use a inverted depth buffer
 
     // invert the Y direction on projection matrix so that we are more similar
     // to opengl and gltf axis
@@ -89,48 +101,116 @@ void OrganVisualizationScene::update()
 
     // Update the MC params (cheap operation but could be checked if there is any change)
     MarchingCubesPass::UpdateMCSettings(mcSettings);
+    MarchingCubesPass::SetCameraZNear(zNear);
+
+    ChunkVisualizationPass::SetInputIsoValue(mcSettings.isoValue);
 }
 
-void OrganVisualizationScene::drawFrame(VkCommandBuffer cmd)
+void OrganVisualizationChunksScene::drawFrame(VkCommandBuffer cmd)
 {
     CircleGridPlanePass::Execute(pEngine, cmd);
-    MarchingCubesPass::Execute(pEngine, cmd);
+    if(showChunks)
+    {
+        ChunkVisualizationPass::Execute(pEngine, cmd, chunkedVolumeData->getNumChunksFlat(), 3.0f);
+    }
+    
+
+    // Fetch the chunks that contain the input iso-value in range
+    std::vector<VolumeChunk*> renderChunks = chunkedVolumeData->query(mcSettings.isoValue);
+    int numRenderChunks = renderChunks.size();
+
+    for(int i = 0; i < numRenderChunks; ++i)
+    {
+        // Dispatch the mesh shaders for each chunk
+        MarchingCubesPass::SetVoxelBufferDeviceAddress(voxelChunksBufferBaseAddress + renderChunks[i]->stagingBufferOffset);
+        MarchingCubesPass::SetGridCornerPositions(renderChunks[i]->lowerCornerPos, renderChunks[i]->upperCornerPos);
+        MarchingCubesPass::Execute(pEngine, cmd);
+
+    }
 }
 
-OrganVisualizationScene::~OrganVisualizationScene()
+void OrganVisualizationChunksScene::performPreRenderPassOps(VkCommandBuffer cmd)
 {
-    pEngine->destroyBuffer(voxelBuffer);
 }
 
-void OrganVisualizationScene::loadData(uint32_t organID)
+void OrganVisualizationChunksScene::performPostRenderPassOps(VkCommandBuffer cmd)
 {
+    HZBDownSamplePass::Execute(pEngine, cmd);
+}
+
+OrganVisualizationChunksScene::~OrganVisualizationChunksScene()
+{
+    pEngine->destroyBuffer(voxelChunksBuffer);
+    pEngine->destroyBuffer(chunkVisualizationBuffer);
+}
+
+void OrganVisualizationChunksScene::createChunkVisualizationBuffer(const std::vector<VolumeChunk>& chunks)
+{
+    struct ChunkVisInformation
+    {
+        glm::vec3 lowerCornerPos;
+        glm::vec3 upperCornerPos;
+        float minIsoValue;
+        float maxIsoValue;
+    };
+
+    size_t numChunks = chunks.size();
+    size_t stagingBufferSize = numChunks * sizeof(ChunkVisInformation);
+    std::vector<ChunkVisInformation> chunkVisInfo(numChunks);
+    // Fill in the chunk visualization info
+    for(size_t i = 0; i < numChunks; ++i)
+    {
+        const VolumeChunk& chunk = chunks[i];
+        chunkVisInfo[i].lowerCornerPos = chunk.lowerCornerPos;
+        chunkVisInfo[i].upperCornerPos = chunk.upperCornerPos;
+        chunkVisInfo[i].minIsoValue = chunk.minIsoValue;
+        chunkVisInfo[i].maxIsoValue = chunk.maxIsoValue;
+    }
+
+    // Create the Chunk Visualization GPU buffer from the staging buffer
+    chunkVisualizationBuffer = pEngine->createAndUploadGPUBuffer(stagingBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, chunkVisInfo.data());
+    chunkVisualizationBufferAddress = pEngine->getBufferDeviceAddress(chunkVisualizationBuffer.buffer);
+}
+
+void OrganVisualizationChunksScene::loadData(uint32_t organID)
+{
+    // Make sure that Vulkan is done working with the buffer (not the best way but in this case this scene does not do anything else other than rendering a geometry)
     vkDeviceWaitIdle(pEngine->device);
-    pEngine->destroyBuffer(voxelBuffer);
-    glm::uvec3 gridSize;
+    pEngine->destroyBuffer(voxelChunksBuffer);
+    std::vector<float> gridData; glm::uvec3 gridSize;
 
     switch(organID)
     {
         case 0:
-            std::tie(voxelBuffer, gridSize) = loadCTheadData();
+            std::tie(gridData, gridSize) = loadCTheadData();
             break;
         case 1:
-            std::tie(voxelBuffer, gridSize) = loadOrganAtlasData("../../assets/organ_atlas/kidney");
+            std::tie(gridData, gridSize) = loadOrganAtlasData("../../assets/organ_atlas/kidney");
             break;
         default:
             fmt::println("No existing organ id is selected!");
             break;
     }
 
-    mcSettings.gridSize = gridSize;
-    mcSettings.shellSize = mcSettings.gridSize;
-    mcSettings.isoValue = 0.5f;
+    // Create the chunked version of the grid
+    chunkedVolumeData = std::make_unique<ChunkedVolumeData>(pEngine, gridData, gridSize, chunkSize, glm::vec3(-0.5f), glm::vec3(0.5f));
+    gridData.clear();
 
-    MarchingCubesPass::SetVoxelBufferDeviceAddress(pEngine->getBufferDeviceAddress(voxelBuffer.buffer));
-    MarchingCubesPass::SetGridCornerPositions(glm::vec3(-0.5f), glm::vec3(0.5f));
+    // Allocate the chunk buffer on GPU and load the whole data at the beginning only once
+    size_t voxelChunksBufferSize = chunkedVolumeData->getNumChunksFlat() * chunkedVolumeData->getTotalNumPointsPerChunk() * sizeof(float);
+    voxelChunksBuffer = pEngine->uploadStagingBuffer(chunkedVolumeData->getStagingBuffer(), voxelChunksBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
+    voxelChunksBufferBaseAddress = pEngine->getBufferDeviceAddress(voxelChunksBuffer.buffer);
+   
+    // Once the data is loaded staging buffer is no longer needed
+    chunkedVolumeData->destroyStagingBuffer(pEngine);
+
+    mcSettings.gridSize = chunkSize;
+    mcSettings.shellSize = chunkedVolumeData->getShellSize();
+    mcSettings.isoValue = 0.5f;
     MarchingCubesPass::UpdateMCSettings(mcSettings);
 }
 
-std::pair<AllocatedBuffer, glm::uvec3> OrganVisualizationScene::loadCTheadData() const
+std::pair<std::vector<float>, glm::uvec3> OrganVisualizationChunksScene::loadCTheadData() const
 {
     /*
          Load CT Head data. It is given in bytes. Format is 16-bit integers where two consecutive bytes make up one binary integer.
@@ -150,7 +230,7 @@ std::pair<AllocatedBuffer, glm::uvec3> OrganVisualizationScene::loadCTheadData()
     // As the cursor is already at the end, we can directly asses the byte size of the file
     size_t fileSize = (size_t)file.tellg();
 
-    // Store the data
+    // Store the shader code
     std::vector<char> buffer(fileSize);
 
     // Put the cursor at the beginning
@@ -221,11 +301,19 @@ std::pair<AllocatedBuffer, glm::uvec3> OrganVisualizationScene::loadCTheadData()
     vkDestroyShaderModule(pEngine->device, converterComputeShader, nullptr);
     pEngine->destroyBuffer(sourceBuffer);
 
+    // Download the loaded and converted grid back to extract chunks
+    std::vector<float> gridData(gridSize.x * gridSize.y * gridSize.z);
+    AllocatedBuffer voxelBufferCPU = pEngine->downloadGPUBuffer(voxelBuffer.buffer, voxelBufferSize);
+    float* pGridData = (float*)pEngine->getMappedStagingBufferData(voxelBufferCPU);
+    memcpy(gridData.data(), pGridData, voxelBufferSize);
+    pEngine->destroyBuffer(voxelBuffer);
+    pEngine->destroyBuffer(voxelBufferCPU);
+
     // During load I align CThead with right handed standard coordinate system. For that y and z axes change.
-    return { voxelBuffer, glm::uvec3(gridSize.x, gridSize.z, gridSize.y)};
+    return { gridData, glm::uvec3(gridSize.x, gridSize.z, gridSize.y) };
 }
 
-std::pair<AllocatedBuffer, glm::uvec3> OrganVisualizationScene::loadOrganAtlasData(const char* organPathBase)
+std::pair<std::vector<float>, glm::uvec3> OrganVisualizationChunksScene::loadOrganAtlasData(const char* organPathBase) const
 {
     // All the data in organ atlas has the same signature
     std::string binPath = std::string(organPathBase) + ".bin";
@@ -246,19 +334,16 @@ std::pair<AllocatedBuffer, glm::uvec3> OrganVisualizationScene::loadOrganAtlasDa
     file.close();
 
     // Read the binary grid data
-    file.open(binPath, std::ios::ate | std::ios::binary);
+    file.open(binPath, std::ios::binary);
     if(!file)
     {
         fmt::println("Could not open the file: {}", binPath);
     }
-    size_t fileSize = (size_t)file.tellg();
-    std::vector<char> buffer(fileSize);
-    file.seekg(0);
-    file.read(buffer.data(), fileSize);
+    size_t numElements = gridSize.x * gridSize.y * gridSize.z;
+    std::vector<float> buffer(numElements);
+    file.read(reinterpret_cast<char*>(buffer.data()), numElements * sizeof(float));
+
     file.close();
 
-    size_t voxelBufferSize = gridSize.x * gridSize.y * gridSize.z * sizeof(float);
-    voxelBuffer = pEngine->createAndUploadGPUBuffer(voxelBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, buffer.data());
-
-    return { voxelBuffer, gridSize };
+    return { buffer, gridSize };
 }

@@ -70,6 +70,12 @@ std::vector<VolumeChunk*> ChunkedVolumeData::query(float isoValue) const
 	return intervalTree.query(isoValue);
 }
 
+void ChunkedVolumeData::destroyStagingBuffer(VulkanEngine* engine)
+{
+	engine->destroyBuffer(chunksStagingBuffer);
+	chunksStagingBuffer.buffer = VK_NULL_HANDLE;
+}
+
 glm::uvec3 ChunkedVolumeData::getNumChunks() const
 {
 	return numChunks;
@@ -199,7 +205,10 @@ size_t ChunkedVolumeData::estimateNumTriangles(const VolumeChunk& chunk, float i
 
 ChunkedVolumeData::~ChunkedVolumeData()
 {
-	pEngine->destroyBuffer(chunksStagingBuffer);
+	if(chunksStagingBuffer.buffer != VK_NULL_HANDLE)
+	{
+		pEngine->destroyBuffer(chunksStagingBuffer);
+	}
 }
 
 /*

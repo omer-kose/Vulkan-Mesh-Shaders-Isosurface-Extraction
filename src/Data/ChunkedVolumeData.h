@@ -27,6 +27,7 @@ public:
 	ChunkedVolumeData() = delete;
 	ChunkedVolumeData(VulkanEngine* engine, const std::vector<float>& volumeData, const glm::uvec3& gridSize_in, const glm::uvec3& chunkSize_in, const glm::vec3& gridLowerCornerPos_in, const glm::vec3& gridUpperCornerPos_in);
 	std::vector<VolumeChunk*> query(float isoValue) const;
+	void destroyStagingBuffer(VulkanEngine* engine);
 	glm::uvec3 getNumChunks() const;
 	glm::uvec3 getChunkSize() const;
 	size_t getNumChunksFlat() const;
