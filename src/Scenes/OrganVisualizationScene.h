@@ -26,9 +26,6 @@ private:
 	std::pair<std::vector<float>, glm::uvec3> loadOrganAtlasData(const char* organPathBase) const;
 
 	void createChunkVisualizationBuffer(const std::vector<VolumeChunk>& chunks);
-	void executeMCUnsorted(VkCommandBuffer cmd) const;
-	void executeMCSorted(VkCommandBuffer cmd) const;
-	void executeMCLoadOnce(VkCommandBuffer cmd) const;
 private:
 	// Data Loading Params
 	std::vector<std::string> organNames; // This is for selecting the organ data from UI. The names are hardcoded. 
@@ -37,13 +34,9 @@ private:
 	MarchingCubesPass::MCSettings mcSettings; // Keep track of settings to be able to modify it via GUI and update once before the render
 	std::unique_ptr<ChunkedVolumeData> chunkedVolumeData;
 	glm::uvec3 chunkSize = glm::uvec3(32, 32, 32);
-	float minVolumeIsoValue = 0.0; float maxVolumeIsoValue = 1.0f; size_t numBins = 12;
 	AllocatedBuffer voxelChunksBuffer; // a pre-determined sized buffer that holds all the chunks
 	VkDeviceAddress voxelChunksBufferBaseAddress;
 	AllocatedBuffer chunkVisualizationBuffer;
 	VkDeviceAddress chunkVisualizationBufferAddress;
-	size_t numChunksInGpu = 256;
 	bool showChunks = false;
-	bool executeChunksSorted = false;
-	bool dataFitsInGPU = true;
 };

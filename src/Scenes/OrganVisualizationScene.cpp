@@ -12,64 +12,6 @@
 
 #include <glm/gtx/transform.hpp>
 
-void insertTransferToMeshShaderBarrier(
-    VkCommandBuffer commandBuffer,
-    VkBuffer buffer,
-    VkDeviceSize offset = 0,
-    VkDeviceSize size = VK_WHOLE_SIZE
-)
-{
-    VkBufferMemoryBarrier bufferBarrier = {
-        .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-        .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
-        .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
-        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .buffer = buffer,
-        .offset = offset,
-        .size = size
-    };
-
-    vkCmdPipelineBarrier(
-        commandBuffer,
-        VK_PIPELINE_STAGE_TRANSFER_BIT,          // Source: Transfer
-        VK_PIPELINE_STAGE_MESH_SHADER_BIT_EXT,    // Dest: Mesh shader
-        0,
-        0, nullptr,       // No memory barriers
-        1, &bufferBarrier,
-        0, nullptr
-    );
-}
-
-void insertMeshShaderToTransferBarrier(
-    VkCommandBuffer commandBuffer,
-    VkBuffer buffer,
-    VkDeviceSize offset = 0,
-    VkDeviceSize size = VK_WHOLE_SIZE
-)
-{
-    VkBufferMemoryBarrier bufferBarrier = {
-        .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-        .srcAccessMask = VK_ACCESS_SHADER_READ_BIT,
-        .dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
-        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .buffer = buffer,
-        .offset = offset,
-        .size = size
-    };
-    
-    vkCmdPipelineBarrier(
-        commandBuffer,
-        VK_PIPELINE_STAGE_MESH_SHADER_BIT_EXT,    // Source: Mesh shader
-        VK_PIPELINE_STAGE_TRANSFER_BIT,           // Dest: Transfer
-        0,
-        0, nullptr,       // No memory barriers
-        1, &bufferBarrier,
-        0, nullptr
-    );
-}
-
 void OrganVisualizationChunksScene::load(VulkanEngine* engine)
 {
     pEngine = engine;
@@ -130,7 +72,6 @@ void OrganVisualizationChunksScene::handleUI()
 
     ImGui::SliderFloat("Iso Value", &mcSettings.isoValue, 0.0f, 1.0f);
     ImGui::Checkbox("Show Chunks", &showChunks);
-    ImGui::Checkbox("Execute Chunks Sorted", &executeChunksSorted);
     ImGui::End();
 }
 
@@ -174,13 +115,17 @@ void OrganVisualizationChunksScene::drawFrame(VkCommandBuffer cmd)
     }
     
 
-    if(dataFitsInGPU)
+    // Fetch the chunks that contain the input iso-value in range
+    std::vector<VolumeChunk*> renderChunks = chunkedVolumeData->query(mcSettings.isoValue);
+    int numRenderChunks = renderChunks.size();
+
+    for(int i = 0; i < numRenderChunks; ++i)
     {
-        executeMCLoadOnce(cmd);
-    }
-    else
-    {
-        executeChunksSorted ? executeMCSorted(cmd) : executeMCUnsorted(cmd);
+        // Dispatch the mesh shaders for each chunk
+        MarchingCubesPass::SetVoxelBufferDeviceAddress(voxelChunksBufferBaseAddress + renderChunks[i]->stagingBufferOffset);
+        MarchingCubesPass::SetGridCornerPositions(renderChunks[i]->lowerCornerPos, renderChunks[i]->upperCornerPos);
+        MarchingCubesPass::Execute(pEngine, cmd);
+
     }
 }
 
@@ -250,28 +195,19 @@ void OrganVisualizationChunksScene::loadData(uint32_t organID)
     // Create the chunked version of the grid
     chunkedVolumeData = std::make_unique<ChunkedVolumeData>(pEngine, gridData, gridSize, chunkSize, glm::vec3(-0.5f), glm::vec3(0.5f));
     gridData.clear();
-    //chunkedVolumeData->computeChunkIsoValueHistograms(minVolumeIsoValue, maxVolumeIsoValue, numBins);
 
-    if(dataFitsInGPU)
-    {
-        // Allocate the chunk buffer on GPU and load the whole data at the beginning only once
-        size_t voxelChunksBufferSize = chunkedVolumeData->getNumChunksFlat() * chunkedVolumeData->getTotalNumPointsPerChunk() * sizeof(float);
-        voxelChunksBuffer = pEngine->uploadStagingBuffer(chunkedVolumeData->getStagingBuffer(), voxelChunksBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
-        voxelChunksBufferBaseAddress = pEngine->getBufferDeviceAddress(voxelChunksBuffer.buffer);
-    }
-    else
-    {
-        // Allocate the chunk buffer on GPU
-        size_t voxelChunksBufferSize = numChunksInGpu * chunkedVolumeData->getTotalNumPointsPerChunk() * sizeof(float);
-        voxelChunksBuffer = pEngine->createBuffer(voxelChunksBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
-        voxelChunksBufferBaseAddress = pEngine->getBufferDeviceAddress(voxelChunksBuffer.buffer);
-    }
+    // Allocate the chunk buffer on GPU and load the whole data at the beginning only once
+    size_t voxelChunksBufferSize = chunkedVolumeData->getNumChunksFlat() * chunkedVolumeData->getTotalNumPointsPerChunk() * sizeof(float);
+    voxelChunksBuffer = pEngine->uploadStagingBuffer(chunkedVolumeData->getStagingBuffer(), voxelChunksBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
+    voxelChunksBufferBaseAddress = pEngine->getBufferDeviceAddress(voxelChunksBuffer.buffer);
+   
+    // Once the data is loaded staging buffer is no longer needed
+    chunkedVolumeData->destroyStagingBuffer(pEngine);
 
     mcSettings.gridSize = chunkSize;
     mcSettings.shellSize = chunkedVolumeData->getShellSize();
     mcSettings.isoValue = 0.5f;
     MarchingCubesPass::UpdateMCSettings(mcSettings);
-
 }
 
 std::pair<std::vector<float>, glm::uvec3> OrganVisualizationChunksScene::loadCTheadData() const
@@ -410,157 +346,4 @@ std::pair<std::vector<float>, glm::uvec3> OrganVisualizationChunksScene::loadOrg
     file.close();
 
     return { buffer, gridSize };
-}
-
-void OrganVisualizationChunksScene::executeMCUnsorted(VkCommandBuffer cmd) const
-{
-    // Fetch the chunks that contain the input iso-value in range
-    std::vector<VolumeChunk*> renderChunks = chunkedVolumeData->query(mcSettings.isoValue);
-    int numRenderChunks = renderChunks.size();
-    int numBatches = (numRenderChunks + numChunksInGpu - 1) / numChunksInGpu;
-    // Precompute the values that will be needed for buffer upload
-    VkBuffer chunksStagingBuffer = chunkedVolumeData->getStagingBuffer();
-    glm::uvec3 chunkSize = chunkedVolumeData->getChunkSize();
-    size_t chunkSizeInBytes = chunkedVolumeData->getTotalNumPointsPerChunk() * sizeof(float);
-    std::vector<VkBufferCopy> copyRegions(numChunksInGpu); // allocating the maximum size will be reused by all the batches
-
-    // Vulkan strictly forbids transfer operations in a render-pass so, I will end the render-pass before each transfer and begin after the operation. The contents of the drawImage should not be cleared.
-    VkRenderingAttachmentInfo colorAttachment = vkinit::attachment_info(pEngine->drawImage.imageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    VkRenderingAttachmentInfo depthAttachment = vkinit::depth_attachment_info_preserve(pEngine->depthImage.imageView, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
-
-    VkRenderingInfo renderInfo = vkinit::rendering_info(pEngine->drawExtent, &colorAttachment, &depthAttachment);
-
-    for(int i = 0; i < numBatches; ++i)
-    {
-        int firstChunkIdx = i * numChunksInGpu;
-        int numChunksToBeProcessed = std::min(numRenderChunks, (int)numChunksInGpu);
-
-        vkCmdEndRendering(cmd);
-
-        // Upload the chunks in the batch
-        for(int c = 0; c < numChunksToBeProcessed; ++c)
-        {
-            VkBufferCopy copy{};
-            copy.dstOffset = c * chunkSizeInBytes;
-            copy.srcOffset = renderChunks[firstChunkIdx + c]->stagingBufferOffset;
-            copy.size = chunkSizeInBytes;
-            copyRegions[c] = copy;
-        }
-        vkCmdCopyBuffer(cmd, chunksStagingBuffer, voxelChunksBuffer.buffer, numChunksToBeProcessed, copyRegions.data());
-
-        // Pipeline Barrier between buffer transfer and mesh shader dispatch
-        insertTransferToMeshShaderBarrier(cmd, voxelChunksBuffer.buffer, 0, numChunksInGpu * chunkSizeInBytes);
-
-        vkCmdBeginRendering(cmd, &renderInfo);
-
-        // Dispatch the mesh shaders for each chunk
-        for(int c = 0; c < numChunksToBeProcessed; ++c)
-        {
-            MarchingCubesPass::SetVoxelBufferDeviceAddress(voxelChunksBufferBaseAddress + c * chunkSizeInBytes);
-            MarchingCubesPass::SetGridCornerPositions(renderChunks[firstChunkIdx + c]->lowerCornerPos, renderChunks[firstChunkIdx + c]->upperCornerPos);
-            MarchingCubesPass::Execute(pEngine, cmd);
-        }
-
-        // Pipeline Barrier between mesh shader dispatch and the next buffer transfer
-        if(i != numBatches - 1)
-        {
-            vkCmdEndRendering(cmd);
-            insertMeshShaderToTransferBarrier(cmd, voxelChunksBuffer.buffer, 0, numChunksInGpu * chunkSizeInBytes);
-            vkCmdBeginRendering(cmd, &renderInfo);
-        }
-
-        numRenderChunks -= numChunksInGpu;
-    }
-}
-
-void OrganVisualizationChunksScene::executeMCSorted(VkCommandBuffer cmd) const
-{
-    // Fetch the chunks that contain the input iso-value in range
-    std::vector<VolumeChunk*> renderChunks = chunkedVolumeData->query(mcSettings.isoValue);
-    int numRenderChunks = renderChunks.size();
-    int numBatches = (numRenderChunks + numChunksInGpu - 1) / numChunksInGpu;
-    // Precompute the values that will be needed for buffer upload
-    VkBuffer chunksStagingBuffer = chunkedVolumeData->getStagingBuffer();
-    glm::uvec3 chunkSize = chunkedVolumeData->getChunkSize();
-    size_t chunkSizeInBytes = chunkedVolumeData->getTotalNumPointsPerChunk() * sizeof(float);
-    std::vector<VkBufferCopy> copyRegions(numChunksInGpu); // allocating the maximum size will be reused by all the batches
-
-    // Sort the chunks (actually indices of them) wrt number of estimate triangles they will produce. So that, in each batch dispatch we have a more uniform execution time until the barrier
-    std::vector<uint32_t> sortedChunkIndices(renderChunks.size());
-    for(uint32_t i = 0; i < renderChunks.size(); ++i)
-    {
-        sortedChunkIndices[i] = i;
-    }
-
-    std::sort(sortedChunkIndices.begin(), sortedChunkIndices.end(), [&](uint32_t iA, uint32_t iB){
-        size_t numTrianglesA = chunkedVolumeData->estimateNumTriangles(*renderChunks[iA], mcSettings.isoValue);
-        size_t numTrianglesB = chunkedVolumeData->estimateNumTriangles(*renderChunks[iB], mcSettings.isoValue);
-
-        return numTrianglesA > numTrianglesB;
-    });
-
-    // Vulkan strictly forbids transfer operations in a render-pass so, I will end the render-pass before each transfer and begin after the operation. The contents of the drawImage should not be cleared.
-    VkRenderingAttachmentInfo colorAttachment = vkinit::attachment_info(pEngine->drawImage.imageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    VkRenderingAttachmentInfo depthAttachment = vkinit::depth_attachment_info_preserve(pEngine->depthImage.imageView, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
-
-    VkRenderingInfo renderInfo = vkinit::rendering_info(pEngine->drawExtent, &colorAttachment, &depthAttachment);
-
-    for(int i = 0; i < numBatches; ++i)
-    {
-        int firstChunkIdx = i * numChunksInGpu;
-        int numChunksToBeProcessed = std::min(numRenderChunks, (int)numChunksInGpu);
-
-        vkCmdEndRendering(cmd);
-
-        // Upload the chunks in the batch
-        for(int c = 0; c < numChunksToBeProcessed; ++c)
-        {
-            VkBufferCopy copy{};
-            copy.dstOffset = c * chunkSizeInBytes;
-            copy.srcOffset = renderChunks[sortedChunkIndices[firstChunkIdx + c]]->stagingBufferOffset;
-            copy.size = chunkSizeInBytes;
-            copyRegions[c] = copy;
-        }
-        vkCmdCopyBuffer(cmd, chunksStagingBuffer, voxelChunksBuffer.buffer, numChunksToBeProcessed, copyRegions.data());
-
-        // Pipeline Barrier between buffer transfer and mesh shader dispatch
-        insertTransferToMeshShaderBarrier(cmd, voxelChunksBuffer.buffer);
-
-        vkCmdBeginRendering(cmd, &renderInfo);
-
-        // Dispatch the mesh shaders for each chunk
-        for(int c = 0; c < numChunksToBeProcessed; ++c)
-        {
-            MarchingCubesPass::SetVoxelBufferDeviceAddress(voxelChunksBufferBaseAddress + c * chunkSizeInBytes);
-            MarchingCubesPass::SetGridCornerPositions(renderChunks[sortedChunkIndices[firstChunkIdx + c]]->lowerCornerPos, renderChunks[sortedChunkIndices[firstChunkIdx + c]]->upperCornerPos);
-            MarchingCubesPass::Execute(pEngine, cmd);
-        }
-
-        // Pipeline Barrier between mesh shader dispatch and the next buffer transfer
-        if(i != numBatches - 1)
-        {
-            vkCmdEndRendering(cmd);
-            insertMeshShaderToTransferBarrier(cmd, voxelChunksBuffer.buffer);
-            vkCmdBeginRendering(cmd, &renderInfo);
-        }
-
-        numRenderChunks -= numChunksInGpu;
-    }
-}
-
-void OrganVisualizationChunksScene::executeMCLoadOnce(VkCommandBuffer cmd) const
-{
-    // Fetch the chunks that contain the input iso-value in range
-    std::vector<VolumeChunk*> renderChunks = chunkedVolumeData->query(mcSettings.isoValue);
-    int numRenderChunks = renderChunks.size();
-    size_t chunkSizeInBytes = chunkedVolumeData->getTotalNumPointsPerChunk() * sizeof(float);
-
-    for(int i = 0; i < numRenderChunks; ++i)
-    {
-        // Dispatch the mesh shaders for each chunk
-        MarchingCubesPass::SetVoxelBufferDeviceAddress(voxelChunksBufferBaseAddress + renderChunks[i]->stagingBufferOffset);
-        MarchingCubesPass::SetGridCornerPositions(renderChunks[i]->lowerCornerPos, renderChunks[i]->upperCornerPos);
-        MarchingCubesPass::Execute(pEngine, cmd);
-
-    }
 }
