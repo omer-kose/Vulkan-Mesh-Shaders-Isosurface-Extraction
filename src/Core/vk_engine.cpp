@@ -1226,7 +1226,7 @@ void VulkanEngine::m_initGlobalSceneBuffer()
 void VulkanEngine::m_initSceneInformation()
 {
     // Harcoding the scene names. 
-    sceneNames = { "Organ Visualization Chunks" };
+    sceneNames = { "Organ Visualization" };
     selectedSceneID = 0;
     loadScene(selectedSceneID);
 }

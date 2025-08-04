@@ -11,7 +11,6 @@
 #include <Pass/HZBDownSamplePass.h>
 
 #include <Scenes/OrganVisualizationScene.h>
-#include <Scenes/OrganVisualizationChunksScene.h>
 
 struct DeletionQueue
 {

@@ -12,13 +12,79 @@
 
 #include <glm/gtx/transform.hpp>
 
-void OrganVisualizationScene::load(VulkanEngine* engine)
+void insertTransferToMeshShaderBarrier(
+    VkCommandBuffer commandBuffer,
+    VkBuffer buffer,
+    VkDeviceSize offset = 0,
+    VkDeviceSize size = VK_WHOLE_SIZE
+)
+{
+    VkBufferMemoryBarrier bufferBarrier = {
+        .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+        .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+        .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .buffer = buffer,
+        .offset = offset,
+        .size = size
+    };
+
+    vkCmdPipelineBarrier(
+        commandBuffer,
+        VK_PIPELINE_STAGE_TRANSFER_BIT,          // Source: Transfer
+        VK_PIPELINE_STAGE_MESH_SHADER_BIT_EXT,    // Dest: Mesh shader
+        0,
+        0, nullptr,       // No memory barriers
+        1, &bufferBarrier,
+        0, nullptr
+    );
+}
+
+void insertMeshShaderToTransferBarrier(
+    VkCommandBuffer commandBuffer,
+    VkBuffer buffer,
+    VkDeviceSize offset = 0,
+    VkDeviceSize size = VK_WHOLE_SIZE
+)
+{
+    VkBufferMemoryBarrier bufferBarrier = {
+        .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+        .srcAccessMask = VK_ACCESS_SHADER_READ_BIT,
+        .dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .buffer = buffer,
+        .offset = offset,
+        .size = size
+    };
+    
+    vkCmdPipelineBarrier(
+        commandBuffer,
+        VK_PIPELINE_STAGE_MESH_SHADER_BIT_EXT,    // Source: Mesh shader
+        VK_PIPELINE_STAGE_TRANSFER_BIT,           // Dest: Transfer
+        0,
+        0, nullptr,       // No memory barriers
+        1, &bufferBarrier,
+        0, nullptr
+    );
+}
+
+void OrganVisualizationChunksScene::load(VulkanEngine* engine)
 {
     pEngine = engine;
 
     organNames = { "CThead", "Kidney" };
 
     loadData(0);
+
+    // Set Grid Plane Pass Settings
+    CircleGridPlanePass::SetPlaneHeight(-0.1f);
+
+    // Prepare Chunk Visualization
+    createChunkVisualizationBuffer(chunkedVolumeData->getChunks());
+    ChunkVisualizationPass::SetChunkBufferDeviceAddress(chunkVisualizationBufferAddress);
+    ChunkVisualizationPass::SetInputIsoValue(mcSettings.isoValue);
 
     // Set the camera
     mainCamera = Camera(glm::vec3(-2.0f, 0.0f, 2.0f), 0.0f, -45.0f);
@@ -27,19 +93,16 @@ void OrganVisualizationScene::load(VulkanEngine* engine)
     // Set attachment clear color
     pEngine->setColorAttachmentClearColor(VkClearValue{ 0.6f, 0.9f, 1.0f, 1.0f });
 
-    // Set Grid Plane height
-    CircleGridPlanePass::SetPlaneHeight(-0.1f);
-
     MarchingCubesPass::SetDepthPyramidBinding(pEngine, HZBDownSamplePass::GetDepthPyramidImageView(), HZBDownSamplePass::GetDepthPyramidSampler());
-
+    MarchingCubesPass::SetDepthPyramidSizes(HZBDownSamplePass::GetDepthPyramidWidth(), HZBDownSamplePass::GetDepthPyramidHeight());
 }
 
-void OrganVisualizationScene::processSDLEvents(SDL_Event& e)
+void OrganVisualizationChunksScene::processSDLEvents(SDL_Event& e)
 {
     mainCamera.processSDLEvent(e);
 }
 
-void OrganVisualizationScene::handleUI()
+void OrganVisualizationChunksScene::handleUI()
 {
     ImGui::Begin("Marching Cubes Parameters");
 
@@ -66,18 +129,23 @@ void OrganVisualizationScene::handleUI()
     }
 
     ImGui::SliderFloat("Iso Value", &mcSettings.isoValue, 0.0f, 1.0f);
+    ImGui::Checkbox("Show Chunks", &showChunks);
+    ImGui::Checkbox("Execute Chunks Sorted", &executeChunksSorted);
     ImGui::End();
 }
 
-void OrganVisualizationScene::update()
+void OrganVisualizationChunksScene::update()
 {
     mainCamera.update();
 
     sceneData.view = mainCamera.getViewMatrix();
+    constexpr float fov = glm::radians(45.0f);
+    float zNear = 0.1f;
+    float zFar = 10000.f;
 
     VkExtent2D windowExtent = pEngine->getWindowExtent();
-    // camera projection
-    sceneData.proj = glm::perspectiveRH_ZO(glm::radians(45.f), (float)windowExtent.width / (float)windowExtent.height, 0.1f, 10000.f);
+
+    sceneData.proj = glm::perspectiveRH_ZO(fov, (float)windowExtent.width / (float)windowExtent.height, zFar, zNear); // reverting zFar and zNear as I use a inverted depth buffer
 
     // invert the Y direction on projection matrix so that we are more similar
     // to opengl and gltf axis
@@ -92,58 +160,121 @@ void OrganVisualizationScene::update()
 
     // Update the MC params (cheap operation but could be checked if there is any change)
     MarchingCubesPass::UpdateMCSettings(mcSettings);
+    MarchingCubesPass::SetCameraZNear(zNear);
+
+    ChunkVisualizationPass::SetInputIsoValue(mcSettings.isoValue);
 }
 
-void OrganVisualizationScene::drawFrame(VkCommandBuffer cmd)
+void OrganVisualizationChunksScene::drawFrame(VkCommandBuffer cmd)
 {
     CircleGridPlanePass::Execute(pEngine, cmd);
-    MarchingCubesPass::Execute(pEngine, cmd);
+    if(showChunks)
+    {
+        ChunkVisualizationPass::Execute(pEngine, cmd, chunkedVolumeData->getNumChunksFlat(), 3.0f);
+    }
+    
+
+    if(dataFitsInGPU)
+    {
+        executeMCLoadOnce(cmd);
+    }
+    else
+    {
+        executeChunksSorted ? executeMCSorted(cmd) : executeMCUnsorted(cmd);
+    }
 }
 
-void OrganVisualizationScene::performPreRenderPassOps(VkCommandBuffer cmd)
+void OrganVisualizationChunksScene::performPreRenderPassOps(VkCommandBuffer cmd)
 {
-    return;
-}  
+}
 
-void OrganVisualizationScene::performPostRenderPassOps(VkCommandBuffer cmd)
+void OrganVisualizationChunksScene::performPostRenderPassOps(VkCommandBuffer cmd)
 {
     HZBDownSamplePass::Execute(pEngine, cmd);
 }
 
-OrganVisualizationScene::~OrganVisualizationScene()
+OrganVisualizationChunksScene::~OrganVisualizationChunksScene()
 {
-    pEngine->destroyBuffer(voxelBuffer);
+    pEngine->destroyBuffer(voxelChunksBuffer);
+    pEngine->destroyBuffer(chunkVisualizationBuffer);
 }
 
-void OrganVisualizationScene::loadData(uint32_t organID)
+void OrganVisualizationChunksScene::createChunkVisualizationBuffer(const std::vector<VolumeChunk>& chunks)
 {
+    struct ChunkVisInformation
+    {
+        glm::vec3 lowerCornerPos;
+        glm::vec3 upperCornerPos;
+        float minIsoValue;
+        float maxIsoValue;
+    };
+
+    size_t numChunks = chunks.size();
+    size_t stagingBufferSize = numChunks * sizeof(ChunkVisInformation);
+    std::vector<ChunkVisInformation> chunkVisInfo(numChunks);
+    // Fill in the chunk visualization info
+    for(size_t i = 0; i < numChunks; ++i)
+    {
+        const VolumeChunk& chunk = chunks[i];
+        chunkVisInfo[i].lowerCornerPos = chunk.lowerCornerPos;
+        chunkVisInfo[i].upperCornerPos = chunk.upperCornerPos;
+        chunkVisInfo[i].minIsoValue = chunk.minIsoValue;
+        chunkVisInfo[i].maxIsoValue = chunk.maxIsoValue;
+    }
+
+    // Create the Chunk Visualization GPU buffer from the staging buffer
+    chunkVisualizationBuffer = pEngine->createAndUploadGPUBuffer(stagingBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, chunkVisInfo.data());
+    chunkVisualizationBufferAddress = pEngine->getBufferDeviceAddress(chunkVisualizationBuffer.buffer);
+}
+
+void OrganVisualizationChunksScene::loadData(uint32_t organID)
+{
+    // Make sure that Vulkan is done working with the buffer (not the best way but in this case this scene does not do anything else other than rendering a geometry)
     vkDeviceWaitIdle(pEngine->device);
-    pEngine->destroyBuffer(voxelBuffer);
-    glm::uvec3 gridSize;
+    pEngine->destroyBuffer(voxelChunksBuffer);
+    std::vector<float> gridData; glm::uvec3 gridSize;
 
     switch(organID)
     {
         case 0:
-            std::tie(voxelBuffer, gridSize) = loadCTheadData();
+            std::tie(gridData, gridSize) = loadCTheadData();
             break;
         case 1:
-            std::tie(voxelBuffer, gridSize) = loadOrganAtlasData("../../assets/organ_atlas/kidney");
+            std::tie(gridData, gridSize) = loadOrganAtlasData("../../assets/organ_atlas/kidney");
             break;
         default:
             fmt::println("No existing organ id is selected!");
             break;
     }
 
-    mcSettings.gridSize = gridSize;
-    mcSettings.shellSize = mcSettings.gridSize;
-    mcSettings.isoValue = 0.5f;
+    // Create the chunked version of the grid
+    chunkedVolumeData = std::make_unique<ChunkedVolumeData>(pEngine, gridData, gridSize, chunkSize, glm::vec3(-0.5f), glm::vec3(0.5f));
+    gridData.clear();
+    //chunkedVolumeData->computeChunkIsoValueHistograms(minVolumeIsoValue, maxVolumeIsoValue, numBins);
 
-    MarchingCubesPass::SetVoxelBufferDeviceAddress(pEngine->getBufferDeviceAddress(voxelBuffer.buffer));
-    MarchingCubesPass::SetGridCornerPositions(glm::vec3(-0.5f), glm::vec3(0.5f));
+    if(dataFitsInGPU)
+    {
+        // Allocate the chunk buffer on GPU and load the whole data at the beginning only once
+        size_t voxelChunksBufferSize = chunkedVolumeData->getNumChunksFlat() * chunkedVolumeData->getTotalNumPointsPerChunk() * sizeof(float);
+        voxelChunksBuffer = pEngine->uploadStagingBuffer(chunkedVolumeData->getStagingBuffer(), voxelChunksBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
+        voxelChunksBufferBaseAddress = pEngine->getBufferDeviceAddress(voxelChunksBuffer.buffer);
+    }
+    else
+    {
+        // Allocate the chunk buffer on GPU
+        size_t voxelChunksBufferSize = numChunksInGpu * chunkedVolumeData->getTotalNumPointsPerChunk() * sizeof(float);
+        voxelChunksBuffer = pEngine->createBuffer(voxelChunksBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+        voxelChunksBufferBaseAddress = pEngine->getBufferDeviceAddress(voxelChunksBuffer.buffer);
+    }
+
+    mcSettings.gridSize = chunkSize;
+    mcSettings.shellSize = chunkedVolumeData->getShellSize();
+    mcSettings.isoValue = 0.5f;
     MarchingCubesPass::UpdateMCSettings(mcSettings);
+
 }
 
-std::pair<AllocatedBuffer, glm::uvec3> OrganVisualizationScene::loadCTheadData() const
+std::pair<std::vector<float>, glm::uvec3> OrganVisualizationChunksScene::loadCTheadData() const
 {
     /*
          Load CT Head data. It is given in bytes. Format is 16-bit integers where two consecutive bytes make up one binary integer.
@@ -163,7 +294,7 @@ std::pair<AllocatedBuffer, glm::uvec3> OrganVisualizationScene::loadCTheadData()
     // As the cursor is already at the end, we can directly asses the byte size of the file
     size_t fileSize = (size_t)file.tellg();
 
-    // Store the data
+    // Store the shader code
     std::vector<char> buffer(fileSize);
 
     // Put the cursor at the beginning
@@ -234,11 +365,19 @@ std::pair<AllocatedBuffer, glm::uvec3> OrganVisualizationScene::loadCTheadData()
     vkDestroyShaderModule(pEngine->device, converterComputeShader, nullptr);
     pEngine->destroyBuffer(sourceBuffer);
 
+    // Download the loaded and converted grid back to extract chunks
+    std::vector<float> gridData(gridSize.x * gridSize.y * gridSize.z);
+    AllocatedBuffer voxelBufferCPU = pEngine->downloadGPUBuffer(voxelBuffer.buffer, voxelBufferSize);
+    float* pGridData = (float*)pEngine->getMappedStagingBufferData(voxelBufferCPU);
+    memcpy(gridData.data(), pGridData, voxelBufferSize);
+    pEngine->destroyBuffer(voxelBuffer);
+    pEngine->destroyBuffer(voxelBufferCPU);
+
     // During load I align CThead with right handed standard coordinate system. For that y and z axes change.
-    return { voxelBuffer, glm::uvec3(gridSize.x, gridSize.z, gridSize.y)};
+    return { gridData, glm::uvec3(gridSize.x, gridSize.z, gridSize.y) };
 }
 
-std::pair<AllocatedBuffer, glm::uvec3> OrganVisualizationScene::loadOrganAtlasData(const char* organPathBase)
+std::pair<std::vector<float>, glm::uvec3> OrganVisualizationChunksScene::loadOrganAtlasData(const char* organPathBase) const
 {
     // All the data in organ atlas has the same signature
     std::string binPath = std::string(organPathBase) + ".bin";
@@ -259,19 +398,169 @@ std::pair<AllocatedBuffer, glm::uvec3> OrganVisualizationScene::loadOrganAtlasDa
     file.close();
 
     // Read the binary grid data
-    file.open(binPath, std::ios::ate | std::ios::binary);
+    file.open(binPath, std::ios::binary);
     if(!file)
     {
         fmt::println("Could not open the file: {}", binPath);
     }
-    size_t fileSize = (size_t)file.tellg();
-    std::vector<char> buffer(fileSize);
-    file.seekg(0);
-    file.read(buffer.data(), fileSize);
+    size_t numElements = gridSize.x * gridSize.y * gridSize.z;
+    std::vector<float> buffer(numElements);
+    file.read(reinterpret_cast<char*>(buffer.data()), numElements * sizeof(float));
+
     file.close();
 
-    size_t voxelBufferSize = gridSize.x * gridSize.y * gridSize.z * sizeof(float);
-    voxelBuffer = pEngine->createAndUploadGPUBuffer(voxelBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, buffer.data());
+    return { buffer, gridSize };
+}
 
-    return { voxelBuffer, gridSize };
+void OrganVisualizationChunksScene::executeMCUnsorted(VkCommandBuffer cmd) const
+{
+    // Fetch the chunks that contain the input iso-value in range
+    std::vector<VolumeChunk*> renderChunks = chunkedVolumeData->query(mcSettings.isoValue);
+    int numRenderChunks = renderChunks.size();
+    int numBatches = (numRenderChunks + numChunksInGpu - 1) / numChunksInGpu;
+    // Precompute the values that will be needed for buffer upload
+    VkBuffer chunksStagingBuffer = chunkedVolumeData->getStagingBuffer();
+    glm::uvec3 chunkSize = chunkedVolumeData->getChunkSize();
+    size_t chunkSizeInBytes = chunkedVolumeData->getTotalNumPointsPerChunk() * sizeof(float);
+    std::vector<VkBufferCopy> copyRegions(numChunksInGpu); // allocating the maximum size will be reused by all the batches
+
+    // Vulkan strictly forbids transfer operations in a render-pass so, I will end the render-pass before each transfer and begin after the operation. The contents of the drawImage should not be cleared.
+    VkRenderingAttachmentInfo colorAttachment = vkinit::attachment_info(pEngine->drawImage.imageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    VkRenderingAttachmentInfo depthAttachment = vkinit::depth_attachment_info_preserve(pEngine->depthImage.imageView, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
+
+    VkRenderingInfo renderInfo = vkinit::rendering_info(pEngine->drawExtent, &colorAttachment, &depthAttachment);
+
+    for(int i = 0; i < numBatches; ++i)
+    {
+        int firstChunkIdx = i * numChunksInGpu;
+        int numChunksToBeProcessed = std::min(numRenderChunks, (int)numChunksInGpu);
+
+        vkCmdEndRendering(cmd);
+
+        // Upload the chunks in the batch
+        for(int c = 0; c < numChunksToBeProcessed; ++c)
+        {
+            VkBufferCopy copy{};
+            copy.dstOffset = c * chunkSizeInBytes;
+            copy.srcOffset = renderChunks[firstChunkIdx + c]->stagingBufferOffset;
+            copy.size = chunkSizeInBytes;
+            copyRegions[c] = copy;
+        }
+        vkCmdCopyBuffer(cmd, chunksStagingBuffer, voxelChunksBuffer.buffer, numChunksToBeProcessed, copyRegions.data());
+
+        // Pipeline Barrier between buffer transfer and mesh shader dispatch
+        insertTransferToMeshShaderBarrier(cmd, voxelChunksBuffer.buffer, 0, numChunksInGpu * chunkSizeInBytes);
+
+        vkCmdBeginRendering(cmd, &renderInfo);
+
+        // Dispatch the mesh shaders for each chunk
+        for(int c = 0; c < numChunksToBeProcessed; ++c)
+        {
+            MarchingCubesPass::SetVoxelBufferDeviceAddress(voxelChunksBufferBaseAddress + c * chunkSizeInBytes);
+            MarchingCubesPass::SetGridCornerPositions(renderChunks[firstChunkIdx + c]->lowerCornerPos, renderChunks[firstChunkIdx + c]->upperCornerPos);
+            MarchingCubesPass::Execute(pEngine, cmd);
+        }
+
+        // Pipeline Barrier between mesh shader dispatch and the next buffer transfer
+        if(i != numBatches - 1)
+        {
+            vkCmdEndRendering(cmd);
+            insertMeshShaderToTransferBarrier(cmd, voxelChunksBuffer.buffer, 0, numChunksInGpu * chunkSizeInBytes);
+            vkCmdBeginRendering(cmd, &renderInfo);
+        }
+
+        numRenderChunks -= numChunksInGpu;
+    }
+}
+
+void OrganVisualizationChunksScene::executeMCSorted(VkCommandBuffer cmd) const
+{
+    // Fetch the chunks that contain the input iso-value in range
+    std::vector<VolumeChunk*> renderChunks = chunkedVolumeData->query(mcSettings.isoValue);
+    int numRenderChunks = renderChunks.size();
+    int numBatches = (numRenderChunks + numChunksInGpu - 1) / numChunksInGpu;
+    // Precompute the values that will be needed for buffer upload
+    VkBuffer chunksStagingBuffer = chunkedVolumeData->getStagingBuffer();
+    glm::uvec3 chunkSize = chunkedVolumeData->getChunkSize();
+    size_t chunkSizeInBytes = chunkedVolumeData->getTotalNumPointsPerChunk() * sizeof(float);
+    std::vector<VkBufferCopy> copyRegions(numChunksInGpu); // allocating the maximum size will be reused by all the batches
+
+    // Sort the chunks (actually indices of them) wrt number of estimate triangles they will produce. So that, in each batch dispatch we have a more uniform execution time until the barrier
+    std::vector<uint32_t> sortedChunkIndices(renderChunks.size());
+    for(uint32_t i = 0; i < renderChunks.size(); ++i)
+    {
+        sortedChunkIndices[i] = i;
+    }
+
+    std::sort(sortedChunkIndices.begin(), sortedChunkIndices.end(), [&](uint32_t iA, uint32_t iB){
+        size_t numTrianglesA = chunkedVolumeData->estimateNumTriangles(*renderChunks[iA], mcSettings.isoValue);
+        size_t numTrianglesB = chunkedVolumeData->estimateNumTriangles(*renderChunks[iB], mcSettings.isoValue);
+
+        return numTrianglesA > numTrianglesB;
+    });
+
+    // Vulkan strictly forbids transfer operations in a render-pass so, I will end the render-pass before each transfer and begin after the operation. The contents of the drawImage should not be cleared.
+    VkRenderingAttachmentInfo colorAttachment = vkinit::attachment_info(pEngine->drawImage.imageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    VkRenderingAttachmentInfo depthAttachment = vkinit::depth_attachment_info_preserve(pEngine->depthImage.imageView, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
+
+    VkRenderingInfo renderInfo = vkinit::rendering_info(pEngine->drawExtent, &colorAttachment, &depthAttachment);
+
+    for(int i = 0; i < numBatches; ++i)
+    {
+        int firstChunkIdx = i * numChunksInGpu;
+        int numChunksToBeProcessed = std::min(numRenderChunks, (int)numChunksInGpu);
+
+        vkCmdEndRendering(cmd);
+
+        // Upload the chunks in the batch
+        for(int c = 0; c < numChunksToBeProcessed; ++c)
+        {
+            VkBufferCopy copy{};
+            copy.dstOffset = c * chunkSizeInBytes;
+            copy.srcOffset = renderChunks[sortedChunkIndices[firstChunkIdx + c]]->stagingBufferOffset;
+            copy.size = chunkSizeInBytes;
+            copyRegions[c] = copy;
+        }
+        vkCmdCopyBuffer(cmd, chunksStagingBuffer, voxelChunksBuffer.buffer, numChunksToBeProcessed, copyRegions.data());
+
+        // Pipeline Barrier between buffer transfer and mesh shader dispatch
+        insertTransferToMeshShaderBarrier(cmd, voxelChunksBuffer.buffer);
+
+        vkCmdBeginRendering(cmd, &renderInfo);
+
+        // Dispatch the mesh shaders for each chunk
+        for(int c = 0; c < numChunksToBeProcessed; ++c)
+        {
+            MarchingCubesPass::SetVoxelBufferDeviceAddress(voxelChunksBufferBaseAddress + c * chunkSizeInBytes);
+            MarchingCubesPass::SetGridCornerPositions(renderChunks[sortedChunkIndices[firstChunkIdx + c]]->lowerCornerPos, renderChunks[sortedChunkIndices[firstChunkIdx + c]]->upperCornerPos);
+            MarchingCubesPass::Execute(pEngine, cmd);
+        }
+
+        // Pipeline Barrier between mesh shader dispatch and the next buffer transfer
+        if(i != numBatches - 1)
+        {
+            vkCmdEndRendering(cmd);
+            insertMeshShaderToTransferBarrier(cmd, voxelChunksBuffer.buffer);
+            vkCmdBeginRendering(cmd, &renderInfo);
+        }
+
+        numRenderChunks -= numChunksInGpu;
+    }
+}
+
+void OrganVisualizationChunksScene::executeMCLoadOnce(VkCommandBuffer cmd) const
+{
+    // Fetch the chunks that contain the input iso-value in range
+    std::vector<VolumeChunk*> renderChunks = chunkedVolumeData->query(mcSettings.isoValue);
+    int numRenderChunks = renderChunks.size();
+    size_t chunkSizeInBytes = chunkedVolumeData->getTotalNumPointsPerChunk() * sizeof(float);
+
+    for(int i = 0; i < numRenderChunks; ++i)
+    {
+        // Dispatch the mesh shaders for each chunk
+        MarchingCubesPass::SetVoxelBufferDeviceAddress(voxelChunksBufferBaseAddress + renderChunks[i]->stagingBufferOffset);
+        MarchingCubesPass::SetGridCornerPositions(renderChunks[i]->lowerCornerPos, renderChunks[i]->upperCornerPos);
+        MarchingCubesPass::Execute(pEngine, cmd);
+
+    }
 }
