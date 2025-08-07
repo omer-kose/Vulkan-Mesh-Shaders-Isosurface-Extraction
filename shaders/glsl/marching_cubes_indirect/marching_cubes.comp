@@ -1,0 +1,55 @@
+#version 450
+#extension GL_GOOGLE_include_directive : enable
+
+#include "input_structures.h"
+
+layout(local_size_x = 64, local_size_x = 1, local_size_z = 1) in;
+
+bool occlusionTest(vec3 lowerCornerPos, vec3 upperCornerPos)
+{
+	vec3 center = (lowerCornerPos + upperCornerPos) / 2.0f;
+	center = (sceneData.view * vec4(center, 1)).xyz;
+	float radius = length(upperCornerPos - lowerCornerPos) / 2.0f; 
+	vec4 aabb;
+	bool visible = false;
+	if (projectBox(lowerCornerPos, upperCornerPos, zNear, sceneData.viewproj, aabb))
+	{
+		float width = (aabb.z - aabb.x) * depthPyramidWidth;
+		float height = (aabb.w - aabb.y) * depthPyramidHeight;
+
+		float level = floor(log2(max(width, height)));
+
+		// Sampler is set up to do min reduction, so this computes the minimum depth of a 2x2 texel quad
+		float sampledDepth = textureLod(depthPyramid, (aabb.xy + aabb.zw) * 0.5, level).x;
+		float currentDepth = zNear / (-center.z - radius);
+		visible = currentDepth > sampledDepth;
+	}
+
+	return visible;
+}
+
+void main()
+{
+    // Each thread works on a chunk
+    uint id = gl_GlobalInvocationID.x;
+    
+    if(id >= numActiveChunks)
+    {
+        return;
+    }
+
+    uint chunkID = activeChunkIndicesBuffer.activeChunkIndices[id];
+    ChunkMetadata metadata = chunkMetadataBuffer.chunkMetadata[chunkID];
+
+    if(occlusionTest(metadata.lowerCornerPos, metadata.upperCornerPos))
+    {
+        uint numTaskGroups = (mcSettings.gridSize.x * mcSettings.gridSize.y * mcSettings.gridSize.z) / (BLOCK_SIZE * BLOCK_SIZE * BLOCK_SIZE); // Grid size (chunk size) will always be a multiple of 2 and bigger than BLOCK_SIZE, so no need for ceil  
+        uint gid = atomicAdd(drawChunkCountBuffer.drawChunkCount, numTaskGroups);
+        
+        for(uint i = 0; i < numTaskGroups; ++i)
+        {
+            chunkDrawDataBuffer.chunkDrawData[gid + i].chunkID = chunkID;
+            chunkDrawDataBuffer.chunkDrawData[gid + i].localWorkgroupID = i;
+        }
+    }
+}

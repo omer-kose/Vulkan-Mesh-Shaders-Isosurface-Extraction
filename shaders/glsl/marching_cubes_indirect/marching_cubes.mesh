@@ -1,25 +1,11 @@
 #version 450
 #extension GL_GOOGLE_include_directive : enable
 #extension GL_EXT_mesh_shader : require
-#extension GL_EXT_shader_8bit_storage: require
 #extension GL_KHR_shader_subgroup_ballot : require
 #extension GL_KHR_shader_subgroup_shuffle_relative : require
 #extension GL_EXT_scalar_block_layout : require
 
 #include "input_structures.h"
-
-struct MarchingCubesLookup
-{
-	uint    Indices[4];
-	uint8_t Vertices[12];
-	uint8_t TriangleCount;
-	uint8_t VertexCount;
-};
-
-layout(set = 1, binding = 0, scalar) uniform MarchingCubesLookupTable
-{
-	MarchingCubesLookup marchingCubesLookupTable[256];
-};
 
 layout(location = 0) out MeshOut
 {
@@ -42,11 +28,12 @@ void main()
 {
 	const uint threadID  = gl_LocalInvocationID.x;
 	const uint meshletID = taskPayload.meshlets[gl_WorkGroupID.x].meshletID;
+	const uint chunkID = taskPayload.chunkID;
 
 	// Reconstruct (firstVoxelID_X, firstVoxelID_Y, firstVoxelID_Z) from MeshletID
-    uint firstVoxelID_X = meshletID % pushConstants.mcSettings.gridSize.x;
-    uint firstVoxelID_Y = (meshletID / pushConstants.mcSettings.gridSize.x) % pushConstants.mcSettings.gridSize.y;
-    uint firstVoxelID_Z = meshletID / (pushConstants.mcSettings.gridSize.x * pushConstants.mcSettings.gridSize.y);
+    uint firstVoxelID_X = meshletID % mcSettings.gridSize.x;
+    uint firstVoxelID_Y = (meshletID / mcSettings.gridSize.x) % mcSettings.gridSize.y;
+    uint firstVoxelID_Z = meshletID / (mcSettings.gridSize.x * mcSettings.gridSize.y);
 
 	// Corner positions of the cube
 	uvec3 cornerIdx0 = uvec3(firstVoxelID_X, firstVoxelID_Y, firstVoxelID_Z);
@@ -63,10 +50,10 @@ void main()
 	idx.z += (off == 3) ? 1 : 0;
 
 	// On the upper boundary corners (right, bottom, and front), offsetting might cause going out of bounds so clamp in any case
-	idx = min(idx, pushConstants.mcSettings.shellSize - uvec3(1));
+	idx = min(idx, mcSettings.shellSize - uvec3(1));
 
 	// Evaluate the field function for all 32 lanes
-	float value = voxelValue(idx);
+	float value = voxelValue(chunkID, idx);
 
 	// Grab data from other lanes so we can compute the normal by computing the difference in value in x, y and z directions.
 	vec3 normal;
@@ -84,7 +71,7 @@ void main()
 	}
 
 	// Look up the Marching Cubes index from the signs of corner nodes. Only the lowest 8 lanes are relevant here, hence the 0xFF mask.
-	uvec4 ballot = subgroupBallot(value >= pushConstants.mcSettings.isoValue);
+	uvec4 ballot = subgroupBallot(value >= mcSettings.isoValue);
 	uint index = (ballot.x & 0xFF);
 
 	const uint vertexCount = uint(marchingCubesLookupTable[index].VertexCount);
@@ -96,8 +83,10 @@ void main()
 
 	// Reconstruct the mesh in a unit cube centered around origin by mapping idx -> alpha = [0, 1] -> lerp(lowerCornerPos, upperCornerPos, alpha)
 	// cornerIdx0: [0, gridSize-1], cornerIdx1 = [1, gridSize]. So, the range [0, gridSize] covers lowerCorner to upperCorner (each idx is top-left-back corner of the voxel so + 1 gives the correct size)
-	vec3 cornerPos0 = mix(pushConstants.lowerCornerPos, pushConstants.upperCornerPos, vec3(cornerIdx0) / vec3(pushConstants.mcSettings.gridSize));
-	vec3 cornerPos1 = mix(pushConstants.lowerCornerPos, pushConstants.upperCornerPos, vec3(cornerIdx1) / vec3(pushConstants.mcSettings.gridSize));
+	vec3 lowerCornerPos = chunkMetadataBuffer.chunkMetadata[chunkID].lowerCornerPos;
+	vec3 upperCornerPos = chunkMetadataBuffer.chunkMetadata[chunkID].upperCornerPos;
+	vec3 cornerPos0 = mix(lowerCornerPos, upperCornerPos, vec3(cornerIdx0) / vec3(mcSettings.gridSize));
+	vec3 cornerPos1 = mix(lowerCornerPos, upperCornerPos, vec3(cornerIdx1) / vec3(mcSettings.gridSize));
 
 	// Output up to 12 vertices, one lane per vertex
 	if (threadID < uint(marchingCubesLookupTable[index].VertexCount))
@@ -112,7 +101,7 @@ void main()
 		vec3 pos1 = vec3((i1 & 1) != 0? cornerPos1.x : cornerPos0.x, (i1 & 2) != 0? cornerPos1.y : cornerPos0.y, (i1 & 4) != 0? cornerPos1.z : cornerPos0.z);
 
 		// Interpolate position and normal
-		float alpha = (pushConstants.mcSettings.isoValue - corners[i0].value) / (corners[i1].value - corners[i0].value);
+		float alpha = (mcSettings.isoValue - corners[i0].value) / (corners[i1].value - corners[i0].value);
 		vec3 pos    = mix(pos0, pos1, alpha);
 		vec3 normal = mix(corners[i0].normal, corners[i1].normal, alpha);
 
