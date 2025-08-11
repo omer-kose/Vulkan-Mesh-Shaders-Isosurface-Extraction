@@ -16,7 +16,7 @@ public:
 	static void Init(VulkanEngine* engine);
 	static void Execute(VulkanEngine* engine, VkCommandBuffer cmd, size_t numChunks, float lineWidth = 1.0f);
 	static void SetChunkBufferDeviceAddress(const VkDeviceAddress& chunkBufferDeviceAddress);
-	static void SetInputIsoValue(float isoValue);
+	static void SetInputIsovalue(float isoValue);
 	static void ClearResources(VulkanEngine* engine);
 private:
 	static VkPipeline Pipeline;

@@ -243,3 +243,28 @@ void PipelineBuilder::enableDepthTest(bool depthWriteEnable, VkCompareOp compare
 	depthStencil.minDepthBounds = 0.0f;
 	depthStencil.maxDepthBounds = 1.0f;
 }
+
+ComputePipelineBuilder::ComputePipelineBuilder()
+{
+}
+
+std::tuple<VkPipelineLayout, VkPipeline> ComputePipelineBuilder::buildPipeline(VkDevice device, VkShaderModule computeShader, const std::vector<VkPushConstantRange>& pcRanges, const std::vector<VkDescriptorSetLayout>& setLayouts)
+{
+	VkPipelineLayout pipelineLayout; VkPipeline pipeline;
+	// Create the compute pipeline
+	VkPipelineLayoutCreateInfo pipelineLayoutInfo{ .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO, .pNext = nullptr };
+	pipelineLayoutInfo.pushConstantRangeCount = pcRanges.size();
+	pipelineLayoutInfo.pPushConstantRanges = pcRanges.size() == 0 ? nullptr : pcRanges.data();
+	pipelineLayoutInfo.setLayoutCount= setLayouts.size();
+	pipelineLayoutInfo.pSetLayouts = setLayouts.size() == 0 ? nullptr : setLayouts.data();
+	VK_CHECK(vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipelineLayout));
+
+	// Create the pipeline
+	VkPipelineShaderStageCreateInfo shaderStageInfo = vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_COMPUTE_BIT, computeShader);
+	VkComputePipelineCreateInfo pipelineInfo = { .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO, .pNext = nullptr };
+	pipelineInfo.layout = pipelineLayout;
+	pipelineInfo.stage = shaderStageInfo;
+	VK_CHECK(vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &pipeline));
+
+	return {pipelineLayout, pipeline};
+}

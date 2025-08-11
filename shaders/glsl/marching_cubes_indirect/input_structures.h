@@ -2,7 +2,6 @@
 #extension GL_EXT_buffer_reference : require
 #extension GL_EXT_shader_8bit_storage : require
 
-
 layout(set = 0, binding = 0, scalar) uniform SceneData
 {
 	mat4 view;
@@ -12,21 +11,6 @@ layout(set = 0, binding = 0, scalar) uniform SceneData
 	vec4 sunlightDirection; //w for sun power
 	vec4 sunlightColor;
 } sceneData;
-
-struct MarchingCubesLookup
-{
-	uint    Indices[4];
-	uint8_t Vertices[12];
-	uint8_t TriangleCount;
-	uint8_t VertexCount;
-};
-
-layout(set = 1, binding = 0, scalar) uniform MarchingCubesLookupTable
-{
-	MarchingCubesLookup marchingCubesLookupTable[256];
-};
-
-layout(set = 1, binding = 1) uniform sampler2D depthPyramid;
 
 #define BLOCK_SIZE 4  // block size that each group processes (e.g., 4x4x4)
 
@@ -90,10 +74,14 @@ layout(buffer_reference, scalar) readonly buffer ActiveChunkIndicesBuffer
 
 /*
 	Final number of chunks that are guaranteed to be processed by task shaders.
+
+	2 dummy values for y and z dispatches which will be always zero. Putting them there to match with the VkDrawMeshTasksIndirectCommandEXT struct as this will be also used as the indirect buffer
 */
 layout(buffer_reference, scalar) buffer DrawChunkCountBuffer
 {
 	uint drawChunkCount;
+	uint _dummy1;
+	uint _dummy2;
 };
 
 layout(push_constant, scalar) uniform PushConstants

@@ -81,7 +81,7 @@ void ChunkVisualizationPass::SetChunkBufferDeviceAddress(const VkDeviceAddress& 
 	PushConstants.chunkBufferDeviceAddress = chunkBufferDeviceAddress;
 }
 
-void ChunkVisualizationPass::SetInputIsoValue(float isoValue)
+void ChunkVisualizationPass::SetInputIsovalue(float isoValue)
 {
 	PushConstants.inputIsoValue = isoValue;
 }

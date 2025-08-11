@@ -214,8 +214,10 @@ ChunkedVolumeData::~ChunkedVolumeData()
 /*
 	Extracts and writes the data of the chunk into the staging buffer
 */
-void ChunkedVolumeData::extractChunkData(const std::vector<float>& volumeData, size_t flatChunkIndex, VolumeChunk& chunk)
+void ChunkedVolumeData::extractChunkData(const std::vector<float>& volumeData, size_t chunkFlatIndex, VolumeChunk& chunk)
 {
+	chunk.chunkFlatIndex = chunkFlatIndex;
+
 	// Compute the bound indices of the chunk for fetching the data from volume data. (Mapping from chunk index to actual grid index)
 	glm::uvec3 startIndex = chunkSize * chunk.chunkIndex;
 	glm::uvec3 endIndex = glm::min(startIndex + chunkSize + 2u, gridSize); // exclusive end
@@ -230,7 +232,7 @@ void ChunkedVolumeData::extractChunkData(const std::vector<float>& volumeData, s
 	chunk.maxIsoValue = -FLT_MAX;
 
 	// Compute and store the offset of the given chunk in the staging buffer
-	size_t chunkVoxelsFlatIndex = flatChunkIndex * ((chunkSize.x + 2) * (chunkSize.y + 2) * (chunkSize.z + 2)); // the actual starting index of the voxels of the chunk in the staging buffer
+	size_t chunkVoxelsFlatIndex = chunkFlatIndex * ((chunkSize.x + 2) * (chunkSize.y + 2) * (chunkSize.z + 2)); // the actual starting index of the voxels of the chunk in the staging buffer
 	chunk.stagingBufferOffset = chunkVoxelsFlatIndex * sizeof(float);
 	
 	float* pChunkVoxels = pChunksStagingBuffer + chunkVoxelsFlatIndex;

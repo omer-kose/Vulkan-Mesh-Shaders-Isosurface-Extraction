@@ -7,6 +7,19 @@
 
 #include "input_structures.h"
 
+struct MarchingCubesLookup
+{
+	uint    Indices[4];
+	uint8_t Vertices[12];
+	uint8_t TriangleCount;
+	uint8_t VertexCount;
+};
+
+layout(set = 1, binding = 0, scalar) uniform MarchingCubesLookupTable
+{
+	MarchingCubesLookup marchingCubesLookupTable[256];
+};
+
 layout(location = 0) out MeshOut
 {
 	vec3 normal;

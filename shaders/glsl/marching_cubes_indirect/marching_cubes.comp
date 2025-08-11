@@ -3,6 +3,8 @@
 
 #include "input_structures.h"
 
+layout(set = 1, binding = 0) uniform sampler2D depthPyramid;
+
 layout(local_size_x = 64, local_size_x = 1, local_size_z = 1) in;
 
 bool occlusionTest(vec3 lowerCornerPos, vec3 upperCornerPos)

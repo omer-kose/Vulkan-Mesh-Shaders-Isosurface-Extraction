@@ -1007,7 +1007,7 @@ void VulkanEngine::m_initDescriptors()
     {
         DescriptorLayoutBuilder builder;
         builder.addBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
-        sceneDescriptorLayout = builder.build(device, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_FRAGMENT_BIT);
+        sceneDescriptorLayout = builder.build(device, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_FRAGMENT_BIT);
     }
 
     // Allocate a descriptor set for the draw image
@@ -1054,6 +1054,7 @@ void VulkanEngine::m_initPasses()
     CircleGridPlanePass::Init(this);
     ChunkVisualizationPass::Init(this);
     HZBDownSamplePass::Init(this);
+    MarchingCubesIndirectPass::Init(this);
 }
 
 void VulkanEngine::m_clearPassResources()
@@ -1062,6 +1063,7 @@ void VulkanEngine::m_clearPassResources()
     CircleGridPlanePass::ClearResources(this);
     ChunkVisualizationPass::ClearResources(this);
     HZBDownSamplePass::ClearResources(this);
+    MarchingCubesIndirectPass::ClearResources(this);
 }
 
 void VulkanEngine::m_initMaterialLayouts()
