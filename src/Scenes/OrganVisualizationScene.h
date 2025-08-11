@@ -24,6 +24,7 @@ private:
 	void loadData(uint32_t organID);
 	std::pair<std::vector<float>, glm::uvec3> loadCTheadData() const;
 	std::pair<std::vector<float>, glm::uvec3> loadOrganAtlasData(const char* organPathBase) const;
+	void clearBuffers();
 
 	void createChunkVisualizationBuffer(const std::vector<VolumeChunk>& chunks);
 private:

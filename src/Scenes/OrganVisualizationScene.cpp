@@ -19,15 +19,11 @@ void OrganVisualizationChunksScene::load(VulkanEngine* engine)
 
     organNames = { "CThead", "Kidney" };
 
-    loadData(0);
+    selectedOrganID = 0;
+    loadData(selectedOrganID);
 
     // Set Grid Plane Pass Settings
     CircleGridPlanePass::SetPlaneHeight(-0.1f);
-
-    // Prepare Chunk Visualization
-    createChunkVisualizationBuffer(chunkedVolumeData->getChunks());
-    ChunkVisualizationPass::SetChunkBufferDeviceAddress(chunkVisualizationBufferAddress);
-    ChunkVisualizationPass::SetInputIsovalue(isovalue);
 
     // Set the camera
     mainCamera = Camera(glm::vec3(-2.0f, 0.0f, 2.0f), 0.0f, -45.0f);
@@ -214,13 +210,7 @@ void OrganVisualizationChunksScene::performPostRenderPassOps(VkCommandBuffer cmd
 
 OrganVisualizationChunksScene::~OrganVisualizationChunksScene()
 {
-    pEngine->destroyBuffer(voxelChunksBuffer);
-    pEngine->destroyBuffer(chunkVisualizationBuffer);
-    pEngine->destroyBuffer(chunkMetadataBuffer);
-    pEngine->destroyBuffer(chunkDrawDataBuffer);
-    pEngine->destroyBuffer(activeChunkIndicesStagingBuffer);
-    pEngine->destroyBuffer(activeChunkIndicesBuffer);
-    pEngine->destroyBuffer(drawChunkCountBuffer);
+    clearBuffers();
 }
 
 void OrganVisualizationChunksScene::createChunkVisualizationBuffer(const std::vector<VolumeChunk>& chunks)
@@ -255,7 +245,7 @@ void OrganVisualizationChunksScene::loadData(uint32_t organID)
 {
     // Make sure that Vulkan is done working with the buffer (not the best way but in this case this scene does not do anything else other than rendering a geometry)
     vkDeviceWaitIdle(pEngine->device);
-    pEngine->destroyBuffer(voxelChunksBuffer);
+    clearBuffers();
     std::vector<float> gridData; glm::uvec3 gridSize;
 
     switch(organID)
@@ -316,6 +306,10 @@ void OrganVisualizationChunksScene::loadData(uint32_t organID)
     MarchingCubesIndirectPass::SetInputIsovalue(isovalue);
     MarchingCubesIndirectPass::SetChunkBufferAddresses(pEngine->getBufferDeviceAddress(chunkMetadataBuffer.buffer), pEngine->getBufferDeviceAddress(chunkDrawDataBuffer.buffer), pEngine->getBufferDeviceAddress(activeChunkIndicesBuffer.buffer), pEngine->getBufferDeviceAddress(drawChunkCountBuffer.buffer));
     
+    // Prepare Chunk Visualization
+    createChunkVisualizationBuffer(chunkedVolumeData->getChunks());
+    ChunkVisualizationPass::SetChunkBufferDeviceAddress(chunkVisualizationBufferAddress);
+    ChunkVisualizationPass::SetInputIsovalue(isovalue);
 }
 
 std::pair<std::vector<float>, glm::uvec3> OrganVisualizationChunksScene::loadCTheadData() const
@@ -442,4 +436,15 @@ std::pair<std::vector<float>, glm::uvec3> OrganVisualizationChunksScene::loadOrg
     file.close();
 
     return { buffer, gridSize };
+}
+
+void OrganVisualizationChunksScene::clearBuffers()
+{
+    pEngine->destroyBuffer(voxelChunksBuffer);
+    pEngine->destroyBuffer(chunkMetadataBuffer);
+    pEngine->destroyBuffer(chunkDrawDataBuffer);
+    pEngine->destroyBuffer(activeChunkIndicesStagingBuffer);
+    pEngine->destroyBuffer(activeChunkIndicesBuffer);
+    pEngine->destroyBuffer(drawChunkCountBuffer);
+    pEngine->destroyBuffer(chunkVisualizationBuffer);
 }
