@@ -88,16 +88,25 @@ void OrganVisualizationChunksScene::update()
 
     sceneData.view = mainCamera.getViewMatrix();
     constexpr float fov = glm::radians(45.0f);
-    constexpr float zNear = 0.1f;
+    constexpr float zNear = 0.01f;
     constexpr float zFar = 10000.f;
 
     VkExtent2D windowExtent = pEngine->getWindowExtent();
 
-    sceneData.proj = glm::perspectiveRH_ZO(fov, (float)windowExtent.width / (float)windowExtent.height, zFar, zNear); // reverting zFar and zNear as I use a inverted depth buffer
+    // sceneData.proj = glm::perspectiveRH_ZO(fov, (float)windowExtent.width / (float)windowExtent.height, zFar, zNear); // reverting zFar and zNear as I use a inverted depth buffer
+
+    const float f = 1.0f / tanf(fov / 2.0f);;
+    const float aspectRatio = float(windowExtent.width) / float(windowExtent.height);
+    sceneData.proj = glm::mat4(
+        f / aspectRatio, 0.0f, 0.0f, 0.0f,
+        0.0f, -f, 0.0f, 0.0f, // inverting y inplace for Vulkan's convention
+        0.0f, 0.0f, 0.0f, -1.0f,
+        0.0f, 0.0f, zNear, 0.0f
+    );
 
     // invert the Y direction on projection matrix so that we are more similar
     // to opengl and gltf axis
-    sceneData.proj[1][1] *= -1;
+    //sceneData.proj[1][1] *= -1;
     sceneData.viewproj = sceneData.proj * sceneData.view;
 
     //some default lighting parameters

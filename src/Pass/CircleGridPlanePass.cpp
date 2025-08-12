@@ -44,7 +44,7 @@ void CircleGridPlanePass::Init(VulkanEngine* engine)
     pipelineBuilder.setCullMode(VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE);
     pipelineBuilder.setMultiSamplingNone();
     pipelineBuilder.enableBlendingAlphaBlend();
-    pipelineBuilder.enableDepthTest(true, VK_COMPARE_OP_GREATER_OR_EQUAL);
+    pipelineBuilder.enableDepthTest(true, VK_COMPARE_OP_GREATER);
 
     // Render format
     pipelineBuilder.setColorAttachmentFormat(engine->drawImage.imageFormat);
