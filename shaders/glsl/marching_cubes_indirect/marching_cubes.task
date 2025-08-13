@@ -1,0 +1,100 @@
+#version 450
+#extension GL_GOOGLE_include_directive : enable
+#extension GL_EXT_mesh_shader : require
+#extension GL_KHR_shader_subgroup_ballot : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+#extension GL_EXT_scalar_block_layout : require
+
+#include "input_structures.h"
+
+taskPayloadSharedEXT TaskPayload taskPayload;
+
+shared uint values[BLOCK_PLUS_1][BLOCK_PLUS_1][BLOCK_PLUS_1]; // intermediate values for the (n+1)x(n+1)x(n+1) corners of nxnxn cubes (n is either 4 or 8)
+
+layout(local_size_x = 32) in;
+void main()
+{
+	uint threadID = gl_LocalInvocationID.x;
+	// In indirect dispatch workgroupID is no longer local to the chunk but global as all the blocks in all the chunks are dispatched at the same time. 
+	// So, it is used to fetch the local group id which will be used to compute the firstBlockID
+	uint workgroupID = gl_WorkGroupID.x; 
+
+	ChunkDrawData drawData = chunkDrawDataBuffer.chunkDrawData[workgroupID];
+
+	// Convert linear workgroud id (or meshlet id) into absolute x, y and z coordinates. 
+    uint numBlocksX = (mcSettings.gridSize.x + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    uint numBlocksY = (mcSettings.gridSize.y + BLOCK_SIZE - 1) / BLOCK_SIZE;
+
+    uint blockID_Z = drawData.localWorkgroupID / (numBlocksX * numBlocksY);
+    uint remaining = drawData.localWorkgroupID % (numBlocksX * numBlocksY);
+    uint blockID_Y = remaining / numBlocksX;
+    uint blockID_X = remaining % numBlocksX;
+
+	// index of the first voxel in the block
+    uint firstVoxelID_X = blockID_X * BLOCK_SIZE;
+    uint firstVoxelID_Y = blockID_Y * BLOCK_SIZE;
+    uint firstVoxelID_Z = blockID_Z * BLOCK_SIZE;
+
+	// Evaluate the corner values for blocks
+	for (uint i = threadID; i < BLOCK_PLUS_1 * BLOCK_PLUS_1 * BLOCK_PLUS_1; i += 32)
+	{
+        uint x = i % BLOCK_PLUS_1;
+        uint y = (i / BLOCK_PLUS_1) % BLOCK_PLUS_1;
+        uint z = i / (BLOCK_PLUS_1 * BLOCK_PLUS_1);
+
+		uvec3 voxelID = uvec3(firstVoxelID_X + x, firstVoxelID_Y + y, firstVoxelID_Z + z);
+
+        // Skip out-of-bounds samples
+		if(any(greaterThanEqual(voxelID, mcSettings.shellSize)))
+		{
+            values[z][y][x] = 0;  // Initialize to avoid garbage (not fetched regardless)
+            continue;
+        }
+
+		float value = voxelValue(drawData.chunkID, voxelID);
+		values[z][y][x] = (value >= mcSettings.isoValue) ? 1 : 0;
+	}
+
+	// Two loops, all lanes used
+	uint count = 0;
+	for (uint i = threadID; i < BLOCK_VOLUME; i += 32)
+	{
+        uint x = i % BLOCK_SIZE;
+        uint y = (i / BLOCK_SIZE) % BLOCK_SIZE;
+        uint z = i / (BLOCK_SIZE * BLOCK_SIZE);
+
+		uvec3 voxelID = uvec3(firstVoxelID_X + x, firstVoxelID_Y + y, firstVoxelID_Z + z);
+
+        // Skip voxels outside the grid
+		if(any(greaterThanEqual(voxelID, mcSettings.shellSize))) continue;
+
+		// Collect the sign bits for the cube corners. If all are zeros or all ones we're either fully inside or outside
+		// the surface, so no triangles will be generated. In all other cases, the isosurface cuts through the cube somewhere.
+		uint cubeIndex;
+		cubeIndex  = (values[z + 0][y + 0][x + 0] << 0);
+		cubeIndex |= (values[z + 0][y + 0][x + 1] << 1);
+		cubeIndex |= (values[z + 0][y + 1][x + 0] << 2);
+		cubeIndex |= (values[z + 0][y + 1][x + 1] << 3);
+		cubeIndex |= (values[z + 1][y + 0][x + 0] << 4);
+		cubeIndex |= (values[z + 1][y + 0][x + 1] << 5);
+		cubeIndex |= (values[z + 1][y + 1][x + 0] << 6);
+		cubeIndex |= (values[z + 1][y + 1][x + 1] << 7);
+
+		// See if our cube intersects the isosurface
+		bool accept = (cubeIndex != 0 && cubeIndex != 0xFF);
+
+		uint payloadIndex = subgroupExclusiveAdd(uint(accept));
+
+		if (accept)
+		{
+			// Output a unique meshlet ID for the mesh shader to decode (simply flattening the voxel index in (x,y,z) to a single float which can be easily converted back to voxel index)
+			uint meshletID = (firstVoxelID_Z + z) * mcSettings.gridSize.y * mcSettings.gridSize.x + (firstVoxelID_Y + y) * mcSettings.gridSize.x + (firstVoxelID_X + x);
+			taskPayload.meshlets[count + payloadIndex].meshletID = meshletID;
+			taskPayload.chunkID = drawData.chunkID;
+		}
+
+		count += subgroupAdd(uint(accept));
+	}
+
+    EmitMeshTasksEXT(count, 1, 1);
+}

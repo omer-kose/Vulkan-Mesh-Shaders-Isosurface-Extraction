@@ -77,7 +77,7 @@ void MarchingCubesPass::Init(VulkanEngine* engine)
     pipelineBuilder.setCullMode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
     pipelineBuilder.setMultiSamplingNone();
     pipelineBuilder.disableBlending();
-    pipelineBuilder.enableDepthTest(true, VK_COMPARE_OP_GREATER_OR_EQUAL);
+    pipelineBuilder.enableDepthTest(true, VK_COMPARE_OP_GREATER);
 
     // Render format
     pipelineBuilder.setColorAttachmentFormat(engine->drawImage.imageFormat);
@@ -108,9 +108,15 @@ void MarchingCubesPass::Execute(VulkanEngine* engine, VkCommandBuffer cmd)
     vkCmdDrawMeshTasksEXT(cmd, ceilDiv(PushConstants.mcSettings.gridSize.x, 4u) * ceilDiv(PushConstants.mcSettings.gridSize.y, 4u) * ceilDiv(PushConstants.mcSettings.gridSize.z, 4u), 1, 1);
 }
 
-void MarchingCubesPass::UpdateMCSettings(const MCSettings& mcSettings)
+void MarchingCubesPass::SetGridShellSizes(glm::uvec3& gridSize, glm::uvec3& shellSize)
 {
-    PushConstants.mcSettings = mcSettings;
+    PushConstants.mcSettings.gridSize = gridSize;
+    PushConstants.mcSettings.shellSize = shellSize;
+}
+
+void MarchingCubesPass::SetInputIsovalue(float isovalue)
+{
+    PushConstants.mcSettings.isovalue = isovalue;
 }
 
 void MarchingCubesPass::SetDepthPyramidBinding(VulkanEngine* engine, VkImageView depthPyramidView, VkSampler depthPyramidSampler)

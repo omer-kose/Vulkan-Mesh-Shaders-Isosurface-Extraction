@@ -68,7 +68,7 @@ void ChunkIntervalTree::Node::query(float isoValue, std::vector<VolumeChunk*>& r
 {
     if(isoValue < center)
     {
-        // Add all overlapping chunks where min <= isoValue
+        // Add all overlapping chunks where min <= isovalue
         for(const auto& chunk : chunksOverlap)
         {
             if(chunk->minIsoValue <= isoValue)
@@ -81,7 +81,7 @@ void ChunkIntervalTree::Node::query(float isoValue, std::vector<VolumeChunk*>& r
     }
     else if(isoValue > center)
     {
-        // Add all overlapping chunks where max >= isoValue
+        // Add all overlapping chunks where max >= isovalue
         for(const auto& chunk : chunksOverlap)
         {
             if(chunk->maxIsoValue >= isoValue)
@@ -94,7 +94,7 @@ void ChunkIntervalTree::Node::query(float isoValue, std::vector<VolumeChunk*>& r
     }
     else
     {
-        // isoValue == center, add all overlapping chunks
+        // isovalue == center, add all overlapping chunks
         result.insert(result.end(), chunksOverlap.begin(), chunksOverlap.end());
     }
 }

@@ -3,6 +3,7 @@
 #include <Core/vk_engine.h>
 #include <Core/vk_initializers.h>
 #include <Core/vk_pipelines.h>
+#include <Core/vk_barriers.h>
 
 #include <fstream>
 
@@ -18,15 +19,11 @@ void OrganVisualizationChunksScene::load(VulkanEngine* engine)
 
     organNames = { "CThead", "Kidney" };
 
-    loadData(0);
+    selectedOrganID = 0;
+    loadData(selectedOrganID);
 
     // Set Grid Plane Pass Settings
     CircleGridPlanePass::SetPlaneHeight(-0.1f);
-
-    // Prepare Chunk Visualization
-    createChunkVisualizationBuffer(chunkedVolumeData->getChunks());
-    ChunkVisualizationPass::SetChunkBufferDeviceAddress(chunkVisualizationBufferAddress);
-    ChunkVisualizationPass::SetInputIsoValue(mcSettings.isoValue);
 
     // Set the camera
     mainCamera = Camera(glm::vec3(-2.0f, 0.0f, 2.0f), 0.0f, -45.0f);
@@ -37,6 +34,9 @@ void OrganVisualizationChunksScene::load(VulkanEngine* engine)
 
     MarchingCubesPass::SetDepthPyramidBinding(pEngine, HZBDownSamplePass::GetDepthPyramidImageView(), HZBDownSamplePass::GetDepthPyramidSampler());
     MarchingCubesPass::SetDepthPyramidSizes(HZBDownSamplePass::GetDepthPyramidWidth(), HZBDownSamplePass::GetDepthPyramidHeight());
+
+    MarchingCubesIndirectPass::SetDepthPyramidBinding(pEngine, HZBDownSamplePass::GetDepthPyramidImageView(), HZBDownSamplePass::GetDepthPyramidSampler());
+    MarchingCubesIndirectPass::SetDepthPyramidSizes(HZBDownSamplePass::GetDepthPyramidWidth(), HZBDownSamplePass::GetDepthPyramidHeight());
 }
 
 void OrganVisualizationChunksScene::processSDLEvents(SDL_Event& e)
@@ -70,7 +70,14 @@ void OrganVisualizationChunksScene::handleUI()
         ImGui::EndCombo();
     }
 
-    ImGui::SliderFloat("Iso Value", &mcSettings.isoValue, 0.0f, 1.0f);
+    ImGui::SliderFloat("Iso Value", &isovalue, 0.0f, 1.0f);
+    if(ImGui::Checkbox("Indirect Dispatch", &indirect))
+    {
+        if(indirect)
+        {
+            prevFrameIsovalue = -isovalue; // invalidate prev isovalue to trigger the first active chunk indices load 
+        }
+    }
     ImGui::Checkbox("Show Chunks", &showChunks);
     ImGui::End();
 }
@@ -81,16 +88,25 @@ void OrganVisualizationChunksScene::update()
 
     sceneData.view = mainCamera.getViewMatrix();
     constexpr float fov = glm::radians(45.0f);
-    float zNear = 0.1f;
-    float zFar = 10000.f;
+    constexpr float zNear = 0.01f;
+    constexpr float zFar = 10000.f;
 
     VkExtent2D windowExtent = pEngine->getWindowExtent();
 
-    sceneData.proj = glm::perspectiveRH_ZO(fov, (float)windowExtent.width / (float)windowExtent.height, zFar, zNear); // reverting zFar and zNear as I use a inverted depth buffer
+    // sceneData.proj = glm::perspectiveRH_ZO(fov, (float)windowExtent.width / (float)windowExtent.height, zFar, zNear); // reverting zFar and zNear as I use a inverted depth buffer
+
+    const float f = 1.0f / tanf(fov / 2.0f);;
+    const float aspectRatio = float(windowExtent.width) / float(windowExtent.height);
+    sceneData.proj = glm::mat4(
+        f / aspectRatio, 0.0f, 0.0f, 0.0f,
+        0.0f, -f, 0.0f, 0.0f, // inverting y inplace for Vulkan's convention
+        0.0f, 0.0f, 0.0f, -1.0f,
+        0.0f, 0.0f, zNear, 0.0f
+    );
 
     // invert the Y direction on projection matrix so that we are more similar
     // to opengl and gltf axis
-    sceneData.proj[1][1] *= -1;
+    //sceneData.proj[1][1] *= -1;
     sceneData.viewproj = sceneData.proj * sceneData.view;
 
     //some default lighting parameters
@@ -100,10 +116,13 @@ void OrganVisualizationChunksScene::update()
     sceneData.sunlightDirection = glm::vec4(directionalLightDir, 1.0f);
 
     // Update the MC params (cheap operation but could be checked if there is any change)
-    MarchingCubesPass::UpdateMCSettings(mcSettings);
+    MarchingCubesPass::SetInputIsovalue(isovalue);
     MarchingCubesPass::SetCameraZNear(zNear);
 
-    ChunkVisualizationPass::SetInputIsoValue(mcSettings.isoValue);
+    MarchingCubesIndirectPass::SetInputIsovalue(isovalue);
+    MarchingCubesIndirectPass::SetCameraZNear(zNear);
+
+    ChunkVisualizationPass::SetInputIsovalue(isovalue);
 }
 
 void OrganVisualizationChunksScene::drawFrame(VkCommandBuffer cmd)
@@ -114,23 +133,83 @@ void OrganVisualizationChunksScene::drawFrame(VkCommandBuffer cmd)
         ChunkVisualizationPass::Execute(pEngine, cmd, chunkedVolumeData->getNumChunksFlat(), 3.0f);
     }
     
-
-    // Fetch the chunks that contain the input iso-value in range
-    std::vector<VolumeChunk*> renderChunks = chunkedVolumeData->query(mcSettings.isoValue);
-    int numRenderChunks = renderChunks.size();
-
-    for(int i = 0; i < numRenderChunks; ++i)
+    if(indirect)
     {
-        // Dispatch the mesh shaders for each chunk
-        MarchingCubesPass::SetVoxelBufferDeviceAddress(voxelChunksBufferBaseAddress + renderChunks[i]->stagingBufferOffset);
-        MarchingCubesPass::SetGridCornerPositions(renderChunks[i]->lowerCornerPos, renderChunks[i]->upperCornerPos);
-        MarchingCubesPass::Execute(pEngine, cmd);
+        MarchingCubesIndirectPass::ExecuteGraphicsPass(pEngine, cmd, drawChunkCountBuffer.buffer);
+    }
+    else
+    {
+        // Fetch the chunks that contain the input iso-value in range
+        std::vector<VolumeChunk*> renderChunks = chunkedVolumeData->query(isovalue);
+        int numRenderChunks = renderChunks.size();
 
+        for(int i = 0; i < numRenderChunks; ++i)
+        {
+            // Dispatch the mesh shaders for each chunk
+            MarchingCubesPass::SetVoxelBufferDeviceAddress(voxelChunksBufferBaseAddress + renderChunks[i]->stagingBufferOffset);
+            MarchingCubesPass::SetGridCornerPositions(renderChunks[i]->lowerCornerPos, renderChunks[i]->upperCornerPos);
+            MarchingCubesPass::Execute(pEngine, cmd);
+
+        }
     }
 }
 
 void OrganVisualizationChunksScene::performPreRenderPassOps(VkCommandBuffer cmd)
 {
+    if(indirect)
+    {
+        if(std::fabs(prevFrameIsovalue - isovalue) >= std::numeric_limits<float>::epsilon())
+        {
+            // Update the staging buffer content 
+            std::vector<VolumeChunk*> renderChunks = chunkedVolumeData->query(isovalue);
+            numActiveChunks = renderChunks.size();
+            MarchingCubesIndirectPass::SetNumActiveChunks(numActiveChunks);
+            uint32_t* pStagingBuffer = (uint32_t*)pEngine->getMappedStagingBufferData(activeChunkIndicesStagingBuffer);
+            for(int i = 0; i < numActiveChunks; ++i)
+            {
+                pStagingBuffer[i] = renderChunks[i]->chunkFlatIndex;
+            }
+
+            // issue buffer copy
+            VkBufferCopy copy{};
+            copy.dstOffset = 0;
+            copy.srcOffset = 0;
+            copy.size = numActiveChunks * sizeof(uint32_t);
+
+            vkCmdCopyBuffer(cmd, activeChunkIndicesStagingBuffer.buffer, activeChunkIndicesBuffer.buffer, 1, &copy);
+            // Synchronize with a barrier
+            VkBufferMemoryBarrier2 copyActiveChunksBarrier = vkutil::bufferBarrier(activeChunkIndicesBuffer.buffer,
+                VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
+                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
+
+            vkutil::pipelineBarrier(cmd, 0, 1, &copyActiveChunksBarrier, 0, nullptr);
+
+            prevFrameIsovalue = isovalue;
+        }
+
+        // Clear draw count back to 0 
+        vkCmdFillBuffer(cmd, drawChunkCountBuffer.buffer, 0, 4, 0);
+        vkCmdFillBuffer(cmd, drawChunkCountBuffer.buffer, 4, 8, 1); // set y and z group numbers to 1
+        VkBufferMemoryBarrier2 fillBarrier = vkutil::bufferBarrier(drawChunkCountBuffer.buffer,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
+            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT);
+        
+        vkutil::pipelineBarrier(cmd, 0, 1, &fillBarrier, 0, nullptr);
+
+        // Compute Culling and Preparing Indirect Commands Pass
+        MarchingCubesIndirectPass::ExecuteComputePass(pEngine, cmd, numActiveChunks);
+        // Synchronize and Protect drawData and drawCount buffers before indirect dispatch
+        VkBufferMemoryBarrier2 cullBarriers[] = {
+            vkutil::bufferBarrier(chunkDrawDataBuffer.buffer,
+            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_WRITE_BIT,
+            VK_PIPELINE_STAGE_TASK_SHADER_BIT_EXT | VK_PIPELINE_STAGE_MESH_SHADER_BIT_EXT,  VK_ACCESS_SHADER_READ_BIT),
+            vkutil::bufferBarrier(drawChunkCountBuffer.buffer,
+            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_WRITE_BIT,
+            VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT, VK_ACCESS_INDIRECT_COMMAND_READ_BIT),
+        };
+
+        vkutil::pipelineBarrier(cmd, 0, 2, cullBarriers, 0, nullptr);
+    }
 }
 
 void OrganVisualizationChunksScene::performPostRenderPassOps(VkCommandBuffer cmd)
@@ -140,8 +219,7 @@ void OrganVisualizationChunksScene::performPostRenderPassOps(VkCommandBuffer cmd
 
 OrganVisualizationChunksScene::~OrganVisualizationChunksScene()
 {
-    pEngine->destroyBuffer(voxelChunksBuffer);
-    pEngine->destroyBuffer(chunkVisualizationBuffer);
+    clearBuffers();
 }
 
 void OrganVisualizationChunksScene::createChunkVisualizationBuffer(const std::vector<VolumeChunk>& chunks)
@@ -176,7 +254,7 @@ void OrganVisualizationChunksScene::loadData(uint32_t organID)
 {
     // Make sure that Vulkan is done working with the buffer (not the best way but in this case this scene does not do anything else other than rendering a geometry)
     vkDeviceWaitIdle(pEngine->device);
-    pEngine->destroyBuffer(voxelChunksBuffer);
+    clearBuffers();
     std::vector<float> gridData; glm::uvec3 gridSize;
 
     switch(organID)
@@ -197,17 +275,50 @@ void OrganVisualizationChunksScene::loadData(uint32_t organID)
     gridData.clear();
 
     // Allocate the chunk buffer on GPU and load the whole data at the beginning only once
-    size_t voxelChunksBufferSize = chunkedVolumeData->getNumChunksFlat() * chunkedVolumeData->getTotalNumPointsPerChunk() * sizeof(float);
+    size_t numChunks = chunkedVolumeData->getNumChunksFlat();
+    size_t voxelChunksBufferSize = numChunks * chunkedVolumeData->getTotalNumPointsPerChunk() * sizeof(float);
     voxelChunksBuffer = pEngine->uploadStagingBuffer(chunkedVolumeData->getStagingBuffer(), voxelChunksBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
     voxelChunksBufferBaseAddress = pEngine->getBufferDeviceAddress(voxelChunksBuffer.buffer);
    
     // Once the data is loaded staging buffer is no longer needed
     chunkedVolumeData->destroyStagingBuffer(pEngine);
 
-    mcSettings.gridSize = chunkSize;
-    mcSettings.shellSize = chunkedVolumeData->getShellSize();
-    mcSettings.isoValue = 0.5f;
-    MarchingCubesPass::UpdateMCSettings(mcSettings);
+    gridSize = chunkSize;
+    shellSize = chunkedVolumeData->getShellSize();
+    isovalue = 0.5f;
+    prevFrameIsovalue = -isovalue; // something not equal to isovalue to trigger the first active chunk indices update
+    MarchingCubesPass::SetGridShellSizes(gridSize, shellSize);
+    MarchingCubesPass::SetInputIsovalue(isovalue);
+
+    // Allocate Indirect Buffers
+    const std::vector<VolumeChunk>& chunks = chunkedVolumeData->getChunks();
+    std::vector<MarchingCubesIndirectPass::ChunkMetadata> chunkMetadata(numChunks);
+    for(int i = 0; i < numChunks; ++i)
+    {
+        chunkMetadata[i].lowerCornerPos = chunks[i].lowerCornerPos;
+        chunkMetadata[i].upperCornerPos = chunks[i].upperCornerPos;
+        chunkMetadata[i].voxelBufferDeviceAddress = voxelChunksBufferBaseAddress + chunks[i].stagingBufferOffset;
+    }
+    chunkMetadataBuffer = pEngine->createAndUploadGPUBuffer(numChunks * sizeof(MarchingCubesIndirectPass::ChunkMetadata), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, chunkMetadata.data());
+    
+    glm::uvec3 chunkSize = chunkedVolumeData->getChunkSize();
+    uint32_t blockSize = 4; // The size of the blocks that task shader processes a chunk. Hardcoding it for now
+    size_t maxNumTaskInvocations = numChunks * ((chunkSize.x * chunkSize.y * chunkSize.z) / (blockSize * blockSize * blockSize));
+    chunkDrawDataBuffer = pEngine->createBuffer(maxNumTaskInvocations * sizeof(MarchingCubesIndirectPass::ChunkDrawData), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+
+    activeChunkIndicesStagingBuffer = pEngine->createBuffer(numChunks * sizeof(uint32_t), VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
+    activeChunkIndicesBuffer = pEngine->createBuffer(numChunks * sizeof(uint32_t), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+    
+    drawChunkCountBuffer = pEngine->createBuffer(3 * sizeof(uint32_t), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+    // Set Marching Cubes Indirect Pass parameters
+    MarchingCubesIndirectPass::SetGridShellSizes(gridSize, shellSize);
+    MarchingCubesIndirectPass::SetInputIsovalue(isovalue);
+    MarchingCubesIndirectPass::SetChunkBufferAddresses(pEngine->getBufferDeviceAddress(chunkMetadataBuffer.buffer), pEngine->getBufferDeviceAddress(chunkDrawDataBuffer.buffer), pEngine->getBufferDeviceAddress(activeChunkIndicesBuffer.buffer), pEngine->getBufferDeviceAddress(drawChunkCountBuffer.buffer));
+    
+    // Prepare Chunk Visualization
+    createChunkVisualizationBuffer(chunkedVolumeData->getChunks());
+    ChunkVisualizationPass::SetChunkBufferDeviceAddress(chunkVisualizationBufferAddress);
+    ChunkVisualizationPass::SetInputIsovalue(isovalue);
 }
 
 std::pair<std::vector<float>, glm::uvec3> OrganVisualizationChunksScene::loadCTheadData() const
@@ -265,26 +376,14 @@ std::pair<std::vector<float>, glm::uvec3> OrganVisualizationChunksScene::loadCTh
     converterPC.voxelBufferAddress = pEngine->getBufferDeviceAddress(voxelBuffer.buffer);
 
     // Create the compute pipeline
-    VkPipelineLayoutCreateInfo converterPipelineLayoutInfo{ .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO, .pNext = nullptr };
+    VkPipelineLayout converterPipelineLayout; VkPipeline converterPipeline; ComputePipelineBuilder pipelineBuilder;
     VkPushConstantRange converterPCRange{ .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .offset = 0, .size = sizeof(VolumeDataConverterPushConstants) };
-    converterPipelineLayoutInfo.pushConstantRangeCount = 1;
-    converterPipelineLayoutInfo.pPushConstantRanges = &converterPCRange;
-
-    VkPipelineLayout converterPipelineLayout;
-    VK_CHECK(vkCreatePipelineLayout(pEngine->device, &converterPipelineLayoutInfo, nullptr, &converterPipelineLayout));
     VkShaderModule converterComputeShader;
     if(!vkutil::loadShaderModule(pEngine->device, "../../shaders/glsl/volume_data_convert/volume_data_convert_comp.spv", &converterComputeShader))
     {
         fmt::println("Volume Data Converter Compute Shader could not be loaded!");
     }
-
-    VkPipelineShaderStageCreateInfo converterShaderStageInfo = vkinit::pipeline_shader_stage_create_info(VK_SHADER_STAGE_COMPUTE_BIT, converterComputeShader);
-    VkComputePipelineCreateInfo converterPipelineInfo = { .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO, .pNext = nullptr };
-    converterPipelineInfo.layout = converterPipelineLayout;
-    converterPipelineInfo.stage = converterShaderStageInfo;
-
-    VkPipeline converterPipeline;
-    VK_CHECK(vkCreateComputePipelines(pEngine->device, VK_NULL_HANDLE, 1, &converterPipelineInfo, nullptr, &converterPipeline));
+    std::tie(converterPipelineLayout, converterPipeline) = pipelineBuilder.buildPipeline(pEngine->device, converterComputeShader, {converterPCRange});
 
     auto ceilDiv = [](unsigned int x, unsigned int y) { return (x + y - 1) / y; };
     // Immediate dispatch the converter kernel
@@ -346,4 +445,15 @@ std::pair<std::vector<float>, glm::uvec3> OrganVisualizationChunksScene::loadOrg
     file.close();
 
     return { buffer, gridSize };
+}
+
+void OrganVisualizationChunksScene::clearBuffers()
+{
+    pEngine->destroyBuffer(voxelChunksBuffer);
+    pEngine->destroyBuffer(chunkMetadataBuffer);
+    pEngine->destroyBuffer(chunkDrawDataBuffer);
+    pEngine->destroyBuffer(activeChunkIndicesStagingBuffer);
+    pEngine->destroyBuffer(activeChunkIndicesBuffer);
+    pEngine->destroyBuffer(drawChunkCountBuffer);
+    pEngine->destroyBuffer(chunkVisualizationBuffer);
 }

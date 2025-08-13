@@ -15,7 +15,7 @@ public:
 	{
 		glm::uvec3 gridSize; // Either determined by the input data or the user if a custom SDF is used (such as a noise function)
 		glm::uvec3 shellSize; // For chunks a shell with +2 on right-bottom-front boundaries for correct computation. For a non-chunked volume gridSize==shellSize. This is only used for fetching the data correctly with voxelValue()
-		float isoValue;
+		float isovalue;
 	};
 	struct MCPushConstants
 	{
@@ -32,7 +32,9 @@ public:
 public:
 	static void Init(VulkanEngine* engine);
 	static void Execute(VulkanEngine* engine, VkCommandBuffer cmd);
-	static void UpdateMCSettings(const MCSettings& mcSettings); // Updates the mcSettings in the Push Constants
+	// Push Constant Set Functions
+	static void SetGridShellSizes(glm::uvec3& gridSize, glm::uvec3& shellSize);
+	static void SetInputIsovalue(float isovalue);
 	static void SetDepthPyramidBinding(VulkanEngine* engine, VkImageView depthPyramidView, VkSampler depthPyramidSampler);
 	static void SetVoxelBufferDeviceAddress(const VkDeviceAddress& voxelBufferDeviceAddress);
 	static void SetGridCornerPositions(const glm::vec3& lowerCornerPos, const glm::vec3& upperCornerPos);

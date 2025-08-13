@@ -34,6 +34,13 @@ public:
     VkFormat colorAttachmentformat;
 };
 
+class ComputePipelineBuilder
+{
+public:
+    ComputePipelineBuilder();
+    std::tuple<VkPipelineLayout, VkPipeline> buildPipeline(VkDevice device, VkShaderModule computeShader, const std::vector<VkPushConstantRange>& pcRanges = {}, const std::vector<VkDescriptorSetLayout>& setLayouts = {});
+};
+
 namespace vkutil 
 {
 	bool loadShaderModule(VkDevice device, const char* filePath, VkShaderModule* outShaderModule);

@@ -9,6 +9,7 @@
 #include <Pass/MarchingCubesPassSDF.h>
 #include <Pass/MarchingCubesPass.h>
 #include <Pass/HZBDownSamplePass.h>
+#include <Pass/MarchingCubesIndirectPass.h>
 
 #include <Scenes/OrganVisualizationScene.h>
 

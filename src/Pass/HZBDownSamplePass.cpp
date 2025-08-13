@@ -4,6 +4,7 @@
 #include <Core/vk_images.h>
 #include <Core/vk_initializers.h>
 #include <Core/vk_pipelines.h>
+#include <Core/vk_barriers.h>
 
 VkPipeline HZBDownSamplePass::Pipeline = VK_NULL_HANDLE;
 VkPipelineLayout HZBDownSamplePass::PipelineLayout = VK_NULL_HANDLE;
@@ -37,39 +38,6 @@ template<typename T>
 T ceilDiv(T x, T y)
 {
 	return (x + y - 1) / y;
-}
-
-VkImageMemoryBarrier2 imageBarrier(VkImage image, VkPipelineStageFlags2 srcStageMask, VkAccessFlags2 srcAccessMask, VkImageLayout oldLayout, VkPipelineStageFlags2 dstStageMask, VkAccessFlags2 dstAccessMask, VkImageLayout newLayout, VkImageAspectFlags aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, uint32_t baseMipLevel = 0, uint32_t levelCount = VK_REMAINING_MIP_LEVELS)
-{
-	VkImageMemoryBarrier2 result = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
-
-	result.srcStageMask = srcStageMask;
-	result.srcAccessMask = srcAccessMask;
-	result.dstStageMask = dstStageMask;
-	result.dstAccessMask = dstAccessMask;
-	result.oldLayout = oldLayout;
-	result.newLayout = newLayout;
-	result.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	result.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	result.image = image;
-	result.subresourceRange.aspectMask = aspectMask;
-	result.subresourceRange.baseMipLevel = baseMipLevel;
-	result.subresourceRange.levelCount = levelCount;
-	result.subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
-
-	return result;
-}
-
-void pipelineBarrier(VkCommandBuffer commandBuffer, VkDependencyFlags dependencyFlags, size_t bufferBarrierCount, const VkBufferMemoryBarrier2* bufferBarriers, size_t imageBarrierCount, const VkImageMemoryBarrier2* imageBarriers)
-{
-	VkDependencyInfo dependencyInfo = { VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
-	dependencyInfo.dependencyFlags = dependencyFlags;
-	dependencyInfo.bufferMemoryBarrierCount = unsigned(bufferBarrierCount);
-	dependencyInfo.pBufferMemoryBarriers = bufferBarriers;
-	dependencyInfo.imageMemoryBarrierCount = unsigned(imageBarrierCount);
-	dependencyInfo.pImageMemoryBarriers = imageBarriers;
-
-	vkCmdPipelineBarrier2(commandBuffer, &dependencyInfo);
 }
 
 void depthTransition(VkCommandBuffer cmd, VkImage image, VkImageLayout currentLayout, VkImageLayout newLayout, VkImageAspectFlags aspectMask = VK_IMAGE_ASPECT_COLOR_BIT)
@@ -159,16 +127,16 @@ void HZBDownSamplePass::Execute(VulkanEngine* engine, VkCommandBuffer cmd)
 {
 	// Transition the images to proper layouts
 	VkImageMemoryBarrier2 depthBarriers[] = {
-		imageBarrier(engine->depthImage.image,
+		vkutil::imageBarrier(engine->depthImage.image,
 			VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
 			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 			VK_IMAGE_ASPECT_DEPTH_BIT),
-		imageBarrier(DepthPyramid.image,
+		vkutil::imageBarrier(DepthPyramid.image,
 			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_GENERAL,
 			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_WRITE_BIT, VK_IMAGE_LAYOUT_GENERAL)
 	};
 
-	pipelineBarrier(cmd, 0, 0, nullptr, 2, depthBarriers);
+	vkutil::pipelineBarrier(cmd, 0, 0, nullptr, 2, depthBarriers);
 
 	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, Pipeline);
 	
@@ -194,21 +162,21 @@ void HZBDownSamplePass::Execute(VulkanEngine* engine, VkCommandBuffer cmd)
 
 		vkCmdDispatch(cmd, ceilDiv(levelWidth, 32u), ceilDiv(levelHeight, 32u), 1u);
 
-		VkImageMemoryBarrier2 reduceBarrier = imageBarrier(DepthPyramid.image,
+		VkImageMemoryBarrier2 reduceBarrier = vkutil::imageBarrier(DepthPyramid.image,
 			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_WRITE_BIT, VK_IMAGE_LAYOUT_GENERAL,
 			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_GENERAL,
 			VK_IMAGE_ASPECT_COLOR_BIT, i, 1);
 
-		pipelineBarrier(cmd, 0, 0, nullptr, 1, &reduceBarrier);
+		vkutil::pipelineBarrier(cmd, 0, 0, nullptr, 1, &reduceBarrier);
 	}
 
 	// Transition back to original layouts;
-	VkImageMemoryBarrier2 depthWriteBarrier = imageBarrier(engine->depthImage.image,
+	VkImageMemoryBarrier2 depthWriteBarrier = vkutil::imageBarrier(engine->depthImage.image,
 		VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 		VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
 		VK_IMAGE_ASPECT_DEPTH_BIT);
 
-	pipelineBarrier(cmd, 0, 0, nullptr, 1, &depthWriteBarrier);
+	vkutil::pipelineBarrier(cmd, 0, 0, nullptr, 1, &depthWriteBarrier);
 
 }
 
