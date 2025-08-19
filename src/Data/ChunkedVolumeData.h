@@ -10,6 +10,7 @@ class VulkanEngine;
 struct VolumeChunk
 {
 	glm::uvec3 chunkIndex; // chunk's xyz index in the grid in chunk elements starting from 0. (For example [2, 3, 1] means this chunk is 3rd in x, 4th in y and 2nd in z). This is used to compute chunk's position in the whole unit grid.
+	glm::uvec3 startIndex; // Starting index of the chunk in the whole data. Used to offset into the correct position the whole buffer.
 	size_t chunkFlatIndex; // index of the chunk in the chunks array
 	size_t stagingBufferOffset; // offset (in bytes) in the staging buffer that holds all the chunks
 	float minIsoValue, maxIsoValue; // among all the voxels in the chunk

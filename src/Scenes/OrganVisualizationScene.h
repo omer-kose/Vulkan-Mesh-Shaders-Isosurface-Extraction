@@ -36,10 +36,13 @@ private:
 	glm::uvec3 shellSize;
 	float prevFrameIsovalue; // To keep track of change in isovalue to trigger active chunk indices update 
 	float isovalue;
+	bool useImageData = false;
 	std::unique_ptr<ChunkedVolumeData> chunkedVolumeData;
 	glm::uvec3 chunkSize = glm::uvec3(32, 32, 32);
 	AllocatedBuffer voxelChunksBuffer; // a pre-determined sized buffer that holds all the chunks
 	VkDeviceAddress voxelChunksBufferBaseAddress;
+	AllocatedImage voxelDataImage; // This is the data of the 3D volume in an image. Not the chunked version
+	VkSampler voxelDataImageSampler; // Sampler won't be used but for optimal shader read only layout but Vulkan requires it
 	AllocatedBuffer chunkVisualizationBuffer;
 	VkDeviceAddress chunkVisualizationBufferAddress;
 	bool showChunks = false;

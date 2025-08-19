@@ -51,6 +51,7 @@ void MarchingCubesPass::Init(VulkanEngine* engine)
     DescriptorLayoutBuilder layoutBuilder;
     layoutBuilder.addBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER); // MC Table (only used in the Mesh Shader)
     layoutBuilder.addBinding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER); // Depth Pyramid
+    layoutBuilder.addBinding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER); // Voxel Data Buffer but stored in 3D image for a better layout
     MCDescriptorSetLayout = layoutBuilder.build(engine->device, VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT);
     // Allocate the descriptor set and update
     MCDescriptorSet = engine->globalDescriptorAllocator.allocate(engine->device, MCDescriptorSetLayout);
@@ -126,9 +127,21 @@ void MarchingCubesPass::SetDepthPyramidBinding(VulkanEngine* engine, VkImageView
     writer.updateSet(engine->device, MCDescriptorSet);
 }
 
+void MarchingCubesPass::SetVoxelDataImageBinding(VulkanEngine* engine, VkImageView dataImageView, VkSampler dataImageSampler)
+{
+    DescriptorWriter writer;
+    writer.writeImage(2, dataImageView, dataImageSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+    writer.updateSet(engine->device, MCDescriptorSet);
+}
+
 void MarchingCubesPass::SetVoxelBufferDeviceAddress(const VkDeviceAddress& voxelBufferDeviceAddress)
 {
     PushConstants.voxelBufferDeviceAddress = voxelBufferDeviceAddress; // assigned once as the address does not change
+}
+
+void MarchingCubesPass::SetChunkStartIndex(const glm::uvec3& startIndex)
+{
+    PushConstants.startIndex = startIndex;
 }
 
 void MarchingCubesPass::SetGridCornerPositions(const glm::vec3& lowerCornerPos, const glm::vec3& upperCornerPos)
@@ -146,6 +159,11 @@ void MarchingCubesPass::SetDepthPyramidSizes(uint32_t depthPyramidWidth, uint32_
 {
     PushConstants.depthPyramidWidth = depthPyramidWidth;
     PushConstants.depthPyramidHeight = depthPyramidHeight;
+}
+
+void MarchingCubesPass::SetDataSourceImageFlag(bool useDataImage)
+{
+    PushConstants.useDataImage = useDataImage;
 }
 
 void MarchingCubesPass::ClearResources(VulkanEngine* engine)

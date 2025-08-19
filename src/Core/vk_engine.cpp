@@ -491,7 +491,9 @@ AllocatedImage VulkanEngine::createImage(VkExtent3D imageExtent, VkFormat format
     newImage.imageFormat = format;
     newImage.imageExtent = imageExtent;
 
-    VkImageCreateInfo imgInfo = vkinit::image_create_info(format, usage, imageExtent);
+    VkImageType imgType = imageExtent.depth == 1 ? VK_IMAGE_TYPE_2D : VK_IMAGE_TYPE_3D;
+
+    VkImageCreateInfo imgInfo = vkinit::image_create_info(format, usage, imageExtent, imgType);
     if(mipMapped)
     {
         imgInfo.mipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(imageExtent.width, imageExtent.height)))) + 1;
@@ -513,7 +515,9 @@ AllocatedImage VulkanEngine::createImage(VkExtent3D imageExtent, VkFormat format
     }
 
     // Create the image-view for the image
-    VkImageViewCreateInfo viewInfo = vkinit::imageview_create_info(format, newImage.image, aspectFlag);
+    VkImageViewType imgViewType = imageExtent.depth == 1 ? VK_IMAGE_VIEW_TYPE_2D : VK_IMAGE_VIEW_TYPE_3D;
+
+    VkImageViewCreateInfo viewInfo = vkinit::imageview_create_info(format, newImage.image, aspectFlag, imgViewType);
     viewInfo.subresourceRange.levelCount = imgInfo.mipLevels;
 
     VK_CHECK(vkCreateImageView(device, &viewInfo, nullptr, &newImage.imageView));
@@ -524,6 +528,7 @@ AllocatedImage VulkanEngine::createImage(VkExtent3D imageExtent, VkFormat format
 AllocatedImage VulkanEngine::createImage(void* data, VkExtent3D imageExtent, VkFormat format, VkImageUsageFlags usage, bool mipMapped)
 {
     // Hardcoding the textures to be RGBA 8 bit format. This should be sufficient as most of the textures are in that format.
+    // As this is data size, this assumption also covers R32 compute based textures.
     size_t dataSize = imageExtent.depth * imageExtent.width * imageExtent.height * 4;
     AllocatedBuffer uploadBuffer = createBuffer(dataSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
 

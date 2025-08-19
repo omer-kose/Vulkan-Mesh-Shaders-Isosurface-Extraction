@@ -21,12 +21,14 @@ public:
 	{
 		MCSettings mcSettings; // This is directly controlled by user. Pass only uses the already written values does not writes onto it. Updating the settings is done via UpdateMCSettings function
 		VkDeviceAddress voxelBufferDeviceAddress;
+		glm::uvec3 startIndex; // starting index of the chunk into the buffer
 		// Positional Limits of the Grid
 		glm::vec3 lowerCornerPos;
 		glm::vec3 upperCornerPos;
 		float zNear;
 		uint32_t depthPyramidWidth;
 		uint32_t depthPyramidHeight;
+		bool useDataImage;
 	};
 
 public:
@@ -36,10 +38,13 @@ public:
 	static void SetGridShellSizes(glm::uvec3& gridSize, glm::uvec3& shellSize);
 	static void SetInputIsovalue(float isovalue);
 	static void SetDepthPyramidBinding(VulkanEngine* engine, VkImageView depthPyramidView, VkSampler depthPyramidSampler);
+	static void SetVoxelDataImageBinding(VulkanEngine* engine, VkImageView dataImageView, VkSampler dataImageSampler);
 	static void SetVoxelBufferDeviceAddress(const VkDeviceAddress& voxelBufferDeviceAddress);
+	static void SetChunkStartIndex(const glm::uvec3& startIndex);
 	static void SetGridCornerPositions(const glm::vec3& lowerCornerPos, const glm::vec3& upperCornerPos);
 	static void SetCameraZNear(float zNear);
 	static void SetDepthPyramidSizes(uint32_t depthPyramidWidth, uint32_t depthPyramidHeight);
+	static void SetDataSourceImageFlag(bool useDataImage);
 	static void ClearResources(VulkanEngine* engine);
 private:
 	static VkPipeline Pipeline;

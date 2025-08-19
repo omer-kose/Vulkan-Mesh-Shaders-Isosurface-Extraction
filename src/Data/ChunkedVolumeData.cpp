@@ -222,7 +222,8 @@ void ChunkedVolumeData::extractChunkData(const std::vector<float>& volumeData, s
 	glm::uvec3 startIndex = chunkSize * chunk.chunkIndex;
 	glm::uvec3 endIndex = glm::min(startIndex + chunkSize + 2u, gridSize); // exclusive end
 	
-	// TODO: Check this after fixing the thing above
+	chunk.startIndex = startIndex;
+
 	// Compute the lower and upper corner positions of the chunk from the grid corners.
 	glm::vec3 stepSize = (gridUpperCornerPos - gridLowerCornerPos) / glm::vec3(gridSize - 1u);
 	chunk.lowerCornerPos = gridLowerCornerPos + glm::vec3(startIndex) * stepSize;

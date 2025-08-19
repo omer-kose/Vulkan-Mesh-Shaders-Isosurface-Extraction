@@ -11,6 +11,8 @@ layout(set = 0, binding = 0, scalar) uniform SceneData
 	vec4 sunlightColor;
 } sceneData;
 
+layout(set = 1, binding = 2) uniform sampler3D dataImage;
+
 #define BLOCK_SIZE 4  // block size that each group processes (e.g., 4x4x4)
 
 // Derived Constants
@@ -34,12 +36,14 @@ layout(push_constant, scalar) uniform PushConstants
 {
 	MCSettings mcSettings;
 	VoxelBuffer voxelBuffer;
+	uvec3 startIndex; // starting index of the chunk into the buffer
 	// Positional Limits of the Grid
 	vec3 lowerCornerPos;
 	vec3 upperCornerPos;
 	float zNear;
 	uint depthPyramidWidth;
 	uint depthPyramidHeight;
+	bool useDataImage;
 } pushConstants;
 
 // Task shader to mesh shader 
@@ -63,7 +67,15 @@ struct TaskPayload
 */
 float voxelValue(uvec3 idx)
 {
-	return pushConstants.voxelBuffer.voxels[idx.x + pushConstants.mcSettings.shellSize.x * (idx.y + pushConstants.mcSettings.shellSize.y * idx.z)];
+	uvec3 globalIdx = pushConstants.startIndex + idx;
+	if(!pushConstants.useDataImage)
+	{
+		return pushConstants.voxelBuffer.voxels[idx.x + pushConstants.mcSettings.shellSize.x * (idx.y + pushConstants.mcSettings.shellSize.y * idx.z)];
+	}
+	else
+	{
+		return texelFetch(dataImage, ivec3(globalIdx), 0).x;
+	}
 }
 
 bool projectBox(vec3 bmin, vec3 bmax, float znear, mat4 viewProjection, out vec4 aabb)

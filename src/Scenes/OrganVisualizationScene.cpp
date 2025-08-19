@@ -17,10 +17,7 @@ void OrganVisualizationChunksScene::load(VulkanEngine* engine)
 {
     pEngine = engine;
 
-    organNames = { "CThead", "Kidney" };
-
-    selectedOrganID = 0;
-    loadData(selectedOrganID);
+    voxelDataImageSampler = engine->createImageSampler(VK_FILTER_NEAREST, VK_SAMPLER_MIPMAP_MODE_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, VK_SAMPLER_REDUCTION_MODE_MIN);
 
     // Set Grid Plane Pass Settings
     CircleGridPlanePass::SetPlaneHeight(-0.1f);
@@ -37,6 +34,11 @@ void OrganVisualizationChunksScene::load(VulkanEngine* engine)
 
     MarchingCubesIndirectPass::SetDepthPyramidBinding(pEngine, HZBDownSamplePass::GetDepthPyramidImageView(), HZBDownSamplePass::GetDepthPyramidSampler());
     MarchingCubesIndirectPass::SetDepthPyramidSizes(HZBDownSamplePass::GetDepthPyramidWidth(), HZBDownSamplePass::GetDepthPyramidHeight());
+
+    organNames = { "CThead", "Kidney" };
+
+    selectedOrganID = 0;
+    loadData(selectedOrganID);
 }
 
 void OrganVisualizationChunksScene::processSDLEvents(SDL_Event& e)
@@ -79,6 +81,10 @@ void OrganVisualizationChunksScene::handleUI()
         }
     }
     ImGui::Checkbox("Show Chunks", &showChunks);
+    if(ImGui::Checkbox("Use Data Image", &useImageData))
+    {
+        MarchingCubesPass::SetDataSourceImageFlag(useImageData);
+    }
     ImGui::End();
 }
 
@@ -147,6 +153,7 @@ void OrganVisualizationChunksScene::drawFrame(VkCommandBuffer cmd)
         {
             // Dispatch the mesh shaders for each chunk
             MarchingCubesPass::SetVoxelBufferDeviceAddress(voxelChunksBufferBaseAddress + renderChunks[i]->stagingBufferOffset);
+            MarchingCubesPass::SetChunkStartIndex(renderChunks[i]->startIndex);
             MarchingCubesPass::SetGridCornerPositions(renderChunks[i]->lowerCornerPos, renderChunks[i]->upperCornerPos);
             MarchingCubesPass::Execute(pEngine, cmd);
 
@@ -220,6 +227,8 @@ void OrganVisualizationChunksScene::performPostRenderPassOps(VkCommandBuffer cmd
 OrganVisualizationChunksScene::~OrganVisualizationChunksScene()
 {
     clearBuffers();
+    pEngine->destroyImage(voxelDataImage);
+    vkDestroySampler(pEngine->device, voxelDataImageSampler, nullptr);
 }
 
 void OrganVisualizationChunksScene::createChunkVisualizationBuffer(const std::vector<VolumeChunk>& chunks)
@@ -272,6 +281,9 @@ void OrganVisualizationChunksScene::loadData(uint32_t organID)
 
     // Create the chunked version of the grid
     chunkedVolumeData = std::make_unique<ChunkedVolumeData>(pEngine, gridData, gridSize, chunkSize, glm::vec3(-0.5f), glm::vec3(0.5f));
+    // Create Image version of the data. Image does not need chunked data as it will hold the whole data at once. Fetching will be done via an offset in the chunk
+    voxelDataImage = pEngine->createImage(gridData.data(), VkExtent3D{ gridSize.x, gridSize.y, gridSize.z }, VK_FORMAT_R32_SFLOAT, VK_IMAGE_USAGE_SAMPLED_BIT, false);
+
     gridData.clear();
 
     // Allocate the chunk buffer on GPU and load the whole data at the beginning only once
@@ -279,6 +291,7 @@ void OrganVisualizationChunksScene::loadData(uint32_t organID)
     size_t voxelChunksBufferSize = numChunks * chunkedVolumeData->getTotalNumPointsPerChunk() * sizeof(float);
     voxelChunksBuffer = pEngine->uploadStagingBuffer(chunkedVolumeData->getStagingBuffer(), voxelChunksBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
     voxelChunksBufferBaseAddress = pEngine->getBufferDeviceAddress(voxelChunksBuffer.buffer);
+
    
     // Once the data is loaded staging buffer is no longer needed
     chunkedVolumeData->destroyStagingBuffer(pEngine);
@@ -289,6 +302,7 @@ void OrganVisualizationChunksScene::loadData(uint32_t organID)
     prevFrameIsovalue = -isovalue; // something not equal to isovalue to trigger the first active chunk indices update
     MarchingCubesPass::SetGridShellSizes(gridSize, shellSize);
     MarchingCubesPass::SetInputIsovalue(isovalue);
+    MarchingCubesPass::SetVoxelDataImageBinding(pEngine, voxelDataImage.imageView, voxelDataImageSampler);
 
     // Allocate Indirect Buffers
     const std::vector<VolumeChunk>& chunks = chunkedVolumeData->getChunks();
