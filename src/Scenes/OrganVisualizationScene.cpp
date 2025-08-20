@@ -19,7 +19,7 @@ void OrganVisualizationChunksScene::load(VulkanEngine* engine)
 
     organNames = { "CThead", "Kidney" };
 
-    selectedOrganID = 0;
+    selectedOrganID = 1;
     loadData(selectedOrganID);
 
     // Set Grid Plane Pass Settings
@@ -255,15 +255,15 @@ void OrganVisualizationChunksScene::loadData(uint32_t organID)
     // Make sure that Vulkan is done working with the buffer (not the best way but in this case this scene does not do anything else other than rendering a geometry)
     vkDeviceWaitIdle(pEngine->device);
     clearBuffers();
-    std::vector<float> gridData; glm::uvec3 gridSize;
+    std::vector<uint8_t> gridData; glm::uvec3 gridSize;
 
     switch(organID)
     {
         case 0:
-            std::tie(gridData, gridSize) = loadCTheadData();
+            //std::tie(gridData, gridSize) = loadCTheadData();
             break;
         case 1:
-            std::tie(gridData, gridSize) = loadOrganAtlasData("../../assets/organ_atlas/kidney");
+            std::tie(gridData, gridSize) = loadOrganAtlasData("../../assets/organ_atlas/kidney_uint8");
             break;
         default:
             fmt::println("No existing organ id is selected!");
@@ -276,7 +276,7 @@ void OrganVisualizationChunksScene::loadData(uint32_t organID)
 
     // Allocate the chunk buffer on GPU and load the whole data at the beginning only once
     size_t numChunks = chunkedVolumeData->getNumChunksFlat();
-    size_t voxelChunksBufferSize = numChunks * chunkedVolumeData->getTotalNumPointsPerChunk() * sizeof(float);
+    size_t voxelChunksBufferSize = numChunks * chunkedVolumeData->getTotalNumPointsPerChunk() * sizeof(uint8_t);
     voxelChunksBuffer = pEngine->uploadStagingBuffer(chunkedVolumeData->getStagingBuffer(), voxelChunksBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
     voxelChunksBufferBaseAddress = pEngine->getBufferDeviceAddress(voxelChunksBuffer.buffer);
    
@@ -412,7 +412,7 @@ std::pair<std::vector<float>, glm::uvec3> OrganVisualizationChunksScene::loadCTh
     return { gridData, glm::uvec3(gridSize.x, gridSize.z, gridSize.y) };
 }
 
-std::pair<std::vector<float>, glm::uvec3> OrganVisualizationChunksScene::loadOrganAtlasData(const char* organPathBase) const
+std::pair<std::vector<uint8_t>, glm::uvec3> OrganVisualizationChunksScene::loadOrganAtlasData(const char* organPathBase) const
 {
     // All the data in organ atlas has the same signature
     std::string binPath = std::string(organPathBase) + ".bin";
@@ -439,8 +439,8 @@ std::pair<std::vector<float>, glm::uvec3> OrganVisualizationChunksScene::loadOrg
         fmt::println("Could not open the file: {}", binPath);
     }
     size_t numElements = gridSize.x * gridSize.y * gridSize.z;
-    std::vector<float> buffer(numElements);
-    file.read(reinterpret_cast<char*>(buffer.data()), numElements * sizeof(float));
+    std::vector<uint8_t> buffer(numElements);
+    file.read(reinterpret_cast<char*>(buffer.data()), numElements * sizeof(uint8_t));
 
     file.close();
 

@@ -1,5 +1,6 @@
 #extension GL_EXT_scalar_block_layout : require
 #extension GL_EXT_buffer_reference : require
+#extension GL_EXT_shader_8bit_storage : require
 
 layout(set = 0, binding = 0, scalar) uniform SceneData
 {
@@ -27,7 +28,7 @@ struct MCSettings
 
 layout(buffer_reference, scalar) readonly buffer VoxelBuffer
 {
-	float voxels[];
+	uint8_t voxels[];
 };
 
 layout(push_constant, scalar) uniform PushConstants
@@ -63,7 +64,7 @@ struct TaskPayload
 */
 float voxelValue(uvec3 idx)
 {
-	return pushConstants.voxelBuffer.voxels[idx.x + pushConstants.mcSettings.shellSize.x * (idx.y + pushConstants.mcSettings.shellSize.y * idx.z)];
+	return uint(pushConstants.voxelBuffer.voxels[idx.x + pushConstants.mcSettings.shellSize.x * (idx.y + pushConstants.mcSettings.shellSize.y * idx.z)]) / 255.0;
 }
 
 bool projectBox(vec3 bmin, vec3 bmax, float znear, mat4 viewProjection, out vec4 aabb)
