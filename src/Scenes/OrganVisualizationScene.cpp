@@ -13,13 +13,15 @@
 
 #include <glm/gtx/transform.hpp>
 
+#include <execution>
+
 void OrganVisualizationChunksScene::load(VulkanEngine* engine)
 {
     pEngine = engine;
 
     organNames = { "CThead", "Kidney" };
 
-    selectedOrganID = 1;
+    selectedOrganID = 0;
     loadData(selectedOrganID);
 
     // Set Grid Plane Pass Settings
@@ -260,7 +262,7 @@ void OrganVisualizationChunksScene::loadData(uint32_t organID)
     switch(organID)
     {
         case 0:
-            //std::tie(gridData, gridSize) = loadCTheadData();
+            std::tie(gridData, gridSize) = loadCTheadData();
             break;
         case 1:
             std::tie(gridData, gridSize) = loadOrganAtlasData("../../assets/organ_atlas/kidney_uint8");
@@ -321,7 +323,7 @@ void OrganVisualizationChunksScene::loadData(uint32_t organID)
     ChunkVisualizationPass::SetInputIsovalue(isovalue);
 }
 
-std::pair<std::vector<float>, glm::uvec3> OrganVisualizationChunksScene::loadCTheadData() const
+std::pair<std::vector<uint8_t>, glm::uvec3> OrganVisualizationChunksScene::loadCTheadData() const
 {
     /*
          Load CT Head data. It is given in bytes. Format is 16-bit integers where two consecutive bytes make up one binary integer.
@@ -399,12 +401,17 @@ std::pair<std::vector<float>, glm::uvec3> OrganVisualizationChunksScene::loadCTh
     vkDestroyPipeline(pEngine->device, converterPipeline, nullptr);
     vkDestroyShaderModule(pEngine->device, converterComputeShader, nullptr);
     pEngine->destroyBuffer(sourceBuffer);
-
+    
     // Download the loaded and converted grid back to extract chunks
-    std::vector<float> gridData(gridSize.x * gridSize.y * gridSize.z);
+    size_t numPoints = gridSize.x * gridSize.y * gridSize.z;
+    std::vector<uint8_t> gridData(numPoints);
     AllocatedBuffer voxelBufferCPU = pEngine->downloadGPUBuffer(voxelBuffer.buffer, voxelBufferSize);
     float* pGridData = (float*)pEngine->getMappedStagingBufferData(voxelBufferCPU);
-    memcpy(gridData.data(), pGridData, voxelBufferSize);
+    std::vector<size_t> indices(numPoints);
+    std::iota(indices.begin(), indices.end(), 0);
+    std::for_each(std::execution::par, indices.begin(), indices.end(), [&](size_t i){
+        gridData[i] = std::round(pGridData[i] * 255.0);
+    });
     pEngine->destroyBuffer(voxelBuffer);
     pEngine->destroyBuffer(voxelBufferCPU);
 

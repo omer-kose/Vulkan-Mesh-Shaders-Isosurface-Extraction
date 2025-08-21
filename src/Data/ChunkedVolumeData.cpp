@@ -32,35 +32,32 @@ ChunkedVolumeData::ChunkedVolumeData(VulkanEngine* engine, const std::vector<uin
 	size_t stagingBufferSize = numChunksFlat * numPointsPerChunk * sizeof(uint8_t);
 	chunksStagingBuffer = pEngine->createBuffer(stagingBufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
 	pChunksStagingBuffer = (uint8_t*)pEngine->getMappedStagingBufferData(chunksStagingBuffer);
-	/*
-		Set all to some constant. This guarantees that, the chunks that is partly outside of the grid (if the size along some axis is not multiple of chunk size) get a default value
-	*/
-	for(size_t i = 0; i < numChunksFlat * numPointsPerChunk; ++i)
-	{
-		pChunksStagingBuffer[i] = 0;
-	}
 
-	// Divide volume into chunks
-	for(size_t z = 0; z < numChunks.z; ++z)
-	{
-		for(size_t y = 0; y < numChunks.y; ++y)
-		{
-			for(size_t x = 0; x < numChunks.x; ++x)
-			{
-				VolumeChunk chunk;
-				chunk.chunkIndex = glm::uvec3(x, y, z);
-				extractChunkData(volumeData, x + numChunks.x * (y + numChunks.y * z), chunk);
-				chunks.push_back(chunk);
-			}
-		}
-	}
+	std::vector<size_t> indices(numChunksFlat);
+	std::iota(indices.begin(), indices.end(), 0);
+
+	std::for_each(std::execution::par, indices.begin(), indices.end(), [&](size_t i){
+		pChunksStagingBuffer[i] = 0;
+	});
+
+	chunks.resize(numChunksFlat);
+	std::for_each(std::execution::par, indices.begin(), indices.end(),[&](size_t idx){
+		size_t z = idx / (numChunks.x * numChunks.y);
+		size_t y = (idx / numChunks.x) % numChunks.y;
+		size_t x = idx % numChunks.x;
+
+		VolumeChunk chunk;
+		chunk.chunkIndex = glm::uvec3(x, y, z);
+		extractChunkData(volumeData, idx, chunk);
+
+		chunks[idx] = std::move(chunk);
+	});
 
 	// Construct the interval tree
 	std::vector<VolumeChunk*> chunkAddresses(numChunksFlat);
-	for(int i = 0; i < numChunksFlat; ++i)
-	{
+	std::for_each(std::execution::par, indices.begin(), indices.end(),[&](size_t i){
 		chunkAddresses[i] = &chunks[i];
-	}
+	});
 
 	intervalTree.build(chunkAddresses);
 }

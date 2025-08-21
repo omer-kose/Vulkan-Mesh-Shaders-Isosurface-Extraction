@@ -22,7 +22,7 @@ public:
 	virtual ~OrganVisualizationChunksScene();
 private:
 	void loadData(uint32_t organID);
-	std::pair<std::vector<float>, glm::uvec3> loadCTheadData() const;
+	std::pair<std::vector<uint8_t>, glm::uvec3> loadCTheadData() const;
 	std::pair<std::vector<uint8_t>, glm::uvec3> loadOrganAtlasData(const char* organPathBase) const;
 	void clearBuffers();
 
@@ -37,14 +37,14 @@ private:
 	float prevFrameIsovalue; // To keep track of change in isovalue to trigger active chunk indices update 
 	float isovalue;
 	std::unique_ptr<ChunkedVolumeData> chunkedVolumeData;
-	glm::uvec3 chunkSize = glm::uvec3(32, 32, 32);
+	glm::uvec3 chunkSize = glm::uvec3(4, 4, 4);
 	AllocatedBuffer voxelChunksBuffer; // a pre-determined sized buffer that holds all the chunks
 	VkDeviceAddress voxelChunksBufferBaseAddress;
 	AllocatedBuffer chunkVisualizationBuffer;
 	VkDeviceAddress chunkVisualizationBufferAddress;
 	bool showChunks = false;
 	// Indirect 
-	bool indirect = false;
+	bool indirect = true;
 	AllocatedBuffer chunkMetadataBuffer;
 	AllocatedBuffer chunkDrawDataBuffer;
 	uint32_t numActiveChunks; // Keep track of it as it is needed for compute dispatch
