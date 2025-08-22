@@ -19,6 +19,8 @@ void OrganVisualizationChunksScene::load(VulkanEngine* engine)
 {
     pEngine = engine;
 
+    chunkSize = glm::uvec3(32, 32, 32);
+
     organNames = { "CThead", "Kidney" };
 
     selectedOrganID = 0;

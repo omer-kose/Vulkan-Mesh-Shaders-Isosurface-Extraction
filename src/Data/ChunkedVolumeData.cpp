@@ -26,7 +26,6 @@ ChunkedVolumeData::ChunkedVolumeData(VulkanEngine* engine, const std::vector<uin
 	numChunks = (gridSize + chunkSize - 1u) / chunkSize;
 	size_t numChunksFlat = numChunks.z * numChunks.y * numChunks.x;
 	size_t numPointsPerChunk = (chunkSize.z + 2) * (chunkSize.y + 2) * (chunkSize.x + 2);
-	chunks.reserve(numChunksFlat);
 
 	// Allocate the staging buffer
 	size_t stagingBufferSize = numChunksFlat * numPointsPerChunk * sizeof(uint8_t);
