@@ -20,6 +20,8 @@ void OrganVisualizationChunksScene::load(VulkanEngine* engine)
     pEngine = engine;
 
     chunkSize = glm::uvec3(32, 32, 32);
+    blockSize = 4;
+    blocksPerChunk = (chunkSize.x * chunkSize.y * chunkSize.z) / (blockSize * blockSize * blockSize);
 
     organNames = { "CThead", "Kidney" };
 
@@ -201,7 +203,8 @@ void OrganVisualizationChunksScene::performPreRenderPassOps(VkCommandBuffer cmd)
         vkutil::pipelineBarrier(cmd, 0, 1, &fillBarrier, 0, nullptr);
 
         // Compute Culling and Preparing Indirect Commands Pass
-        MarchingCubesIndirectPass::ExecuteComputePass(pEngine, cmd, numActiveChunks);
+        size_t totalTasks = numActiveChunks * blocksPerChunk;
+        MarchingCubesIndirectPass::ExecuteComputePass(pEngine, cmd, totalTasks);
         // Synchronize and Protect drawData and drawCount buffers before indirect dispatch
         VkBufferMemoryBarrier2 cullBarriers[] = {
             vkutil::bufferBarrier(chunkDrawDataBuffer.buffer,
@@ -289,7 +292,7 @@ void OrganVisualizationChunksScene::loadData(uint32_t organID)
 
     gridSize = chunkSize;
     shellSize = chunkedVolumeData->getShellSize();
-    isovalue = 0.5f;
+    isovalue = 0.571f;
     prevFrameIsovalue = -isovalue; // something not equal to isovalue to trigger the first active chunk indices update
     MarchingCubesPass::SetGridShellSizes(gridSize, shellSize);
     MarchingCubesPass::SetInputIsovalue(isovalue);
@@ -308,8 +311,6 @@ void OrganVisualizationChunksScene::loadData(uint32_t organID)
     }
     chunkMetadataBuffer = pEngine->createAndUploadGPUBuffer(numChunks * sizeof(MarchingCubesIndirectPass::ChunkMetadata), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, chunkMetadata.data());
     
-    glm::uvec3 chunkSize = chunkedVolumeData->getChunkSize();
-    uint32_t blockSize = 4; // The size of the blocks that task shader processes a chunk. Hardcoding it for now
     size_t maxNumTaskInvocations = numChunks * ((chunkSize.x * chunkSize.y * chunkSize.z) / (blockSize * blockSize * blockSize));
     chunkDrawDataBuffer = pEngine->createBuffer(maxNumTaskInvocations * sizeof(MarchingCubesIndirectPass::ChunkDrawData), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 

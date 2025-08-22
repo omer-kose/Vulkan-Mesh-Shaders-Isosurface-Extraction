@@ -51,4 +51,8 @@ private:
 	AllocatedBuffer activeChunkIndicesStagingBuffer; // when isovalue changes active indices change so for an update, I will be keeping this around
 	AllocatedBuffer activeChunkIndicesBuffer;
 	AllocatedBuffer drawChunkCountBuffer;
+private:
+	// Dispatch related constants
+	uint8_t blockSize;
+	size_t blocksPerChunk;
 };

@@ -31,15 +31,11 @@ ChunkedVolumeData::ChunkedVolumeData(VulkanEngine* engine, const std::vector<uin
 	size_t stagingBufferSize = numChunksFlat * numPointsPerChunk * sizeof(uint8_t);
 	chunksStagingBuffer = pEngine->createBuffer(stagingBufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
 	pChunksStagingBuffer = (uint8_t*)pEngine->getMappedStagingBufferData(chunksStagingBuffer);
-
-	std::vector<size_t> indices(numChunksFlat);
-	std::iota(indices.begin(), indices.end(), 0);
-
-	std::for_each(std::execution::par, indices.begin(), indices.end(), [&](size_t i){
-		pChunksStagingBuffer[i] = 0;
-	});
+	std::memset(pChunksStagingBuffer, 0, stagingBufferSize);
 
 	chunks.resize(numChunksFlat);
+	std::vector<size_t> indices(numChunksFlat);
+	std::iota(indices.begin(), indices.end(), 0);
 	std::for_each(std::execution::par, indices.begin(), indices.end(),[&](size_t idx){
 		size_t z = idx / (numChunks.x * numChunks.y);
 		size_t y = (idx / numChunks.x) % numChunks.y;

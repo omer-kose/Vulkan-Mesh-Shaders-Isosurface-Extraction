@@ -123,7 +123,7 @@ void MarchingCubesIndirectPass::ExecuteComputePass(VulkanEngine* engine, VkComma
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, ComputePipelineLayout, 0, 1, &sceneDescriptorSet, 0, nullptr);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, ComputePipelineLayout, 1, 1, &ComputeDescriptorSet, 0, nullptr);
 
-    vkCmdDispatch(cmd, ceilDiv(numActiveChunks, 64u), 1, 1);
+    vkCmdDispatch(cmd, ceilDiv(numActiveChunks, 128u), 1, 1);
 }
 
 void MarchingCubesIndirectPass::ExecuteGraphicsPass(VulkanEngine* engine, VkCommandBuffer cmd, VkBuffer indirectCommandBuffer)
