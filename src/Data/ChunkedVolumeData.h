@@ -26,7 +26,7 @@ class ChunkedVolumeData
 {
 public:
 	ChunkedVolumeData() = delete;
-	ChunkedVolumeData(VulkanEngine* engine, const std::vector<float>& volumeData, const glm::uvec3& gridSize_in, const glm::uvec3& chunkSize_in, const glm::vec3& gridLowerCornerPos_in, const glm::vec3& gridUpperCornerPos_in);
+	ChunkedVolumeData(VulkanEngine* engine, const std::vector<uint8_t>& volumeData, const glm::uvec3& gridSize_in, const glm::uvec3& chunkSize_in, const glm::vec3& gridLowerCornerPos_in, const glm::vec3& gridUpperCornerPos_in);
 	std::vector<VolumeChunk*> query(float isoValue) const;
 	void destroyStagingBuffer(VulkanEngine* engine);
 	glm::uvec3 getNumChunks() const;
@@ -37,16 +37,14 @@ public:
 	size_t getTotalNumPointsPerChunk() const;
 	glm::uvec3 getShellSize() const;
 	const std::vector<VolumeChunk>& getChunks() const;
-	void computeChunkIsoValueHistograms(float minIsoValue, float maxIsoValue, size_t numBins);
-	size_t estimateNumTriangles(const VolumeChunk& chunk, float isoValue) const;
 	~ChunkedVolumeData();
 private:
-	void extractChunkData(const std::vector<float>& volumeData, size_t chunkFlatIndex, VolumeChunk& chunk);
+	void extractChunkData(const std::vector<uint8_t>& volumeData, size_t chunkFlatIndex, VolumeChunk& chunk);
 private:
 	VulkanEngine* pEngine;
 	std::vector<VolumeChunk> chunks;
 	AllocatedBuffer chunksStagingBuffer;
-	float* pChunksStagingBuffer; // mapped pointer of the staging buffer
+	uint8_t* pChunksStagingBuffer; // mapped pointer of the staging buffer
 	glm::uvec3 gridSize;
 	glm::uvec3 chunkSize;
 	glm::uvec3 numChunks;

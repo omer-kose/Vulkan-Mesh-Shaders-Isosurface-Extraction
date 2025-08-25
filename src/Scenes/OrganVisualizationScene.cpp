@@ -13,9 +13,15 @@
 
 #include <glm/gtx/transform.hpp>
 
+#include <execution>
+
 void OrganVisualizationChunksScene::load(VulkanEngine* engine)
 {
     pEngine = engine;
+
+    chunkSize = glm::uvec3(32, 32, 32);
+    blockSize = 4;
+    blocksPerChunk = (chunkSize.x * chunkSize.y * chunkSize.z) / (blockSize * blockSize * blockSize);
 
     organNames = { "CThead", "Kidney" };
 
@@ -197,7 +203,8 @@ void OrganVisualizationChunksScene::performPreRenderPassOps(VkCommandBuffer cmd)
         vkutil::pipelineBarrier(cmd, 0, 1, &fillBarrier, 0, nullptr);
 
         // Compute Culling and Preparing Indirect Commands Pass
-        MarchingCubesIndirectPass::ExecuteComputePass(pEngine, cmd, numActiveChunks);
+        size_t totalTasks = numActiveChunks * blocksPerChunk;
+        MarchingCubesIndirectPass::ExecuteComputePass(pEngine, cmd, totalTasks);
         // Synchronize and Protect drawData and drawCount buffers before indirect dispatch
         VkBufferMemoryBarrier2 cullBarriers[] = {
             vkutil::bufferBarrier(chunkDrawDataBuffer.buffer,
@@ -255,7 +262,7 @@ void OrganVisualizationChunksScene::loadData(uint32_t organID)
     // Make sure that Vulkan is done working with the buffer (not the best way but in this case this scene does not do anything else other than rendering a geometry)
     vkDeviceWaitIdle(pEngine->device);
     clearBuffers();
-    std::vector<float> gridData; glm::uvec3 gridSize;
+    std::vector<uint8_t> gridData; glm::uvec3 gridSize;
 
     switch(organID)
     {
@@ -263,7 +270,7 @@ void OrganVisualizationChunksScene::loadData(uint32_t organID)
             std::tie(gridData, gridSize) = loadCTheadData();
             break;
         case 1:
-            std::tie(gridData, gridSize) = loadOrganAtlasData("../../assets/organ_atlas/kidney");
+            std::tie(gridData, gridSize) = loadOrganAtlasData("../../assets/organ_atlas/kidney_uint8");
             break;
         default:
             fmt::println("No existing organ id is selected!");
@@ -276,7 +283,7 @@ void OrganVisualizationChunksScene::loadData(uint32_t organID)
 
     // Allocate the chunk buffer on GPU and load the whole data at the beginning only once
     size_t numChunks = chunkedVolumeData->getNumChunksFlat();
-    size_t voxelChunksBufferSize = numChunks * chunkedVolumeData->getTotalNumPointsPerChunk() * sizeof(float);
+    size_t voxelChunksBufferSize = numChunks * chunkedVolumeData->getTotalNumPointsPerChunk() * sizeof(uint8_t);
     voxelChunksBuffer = pEngine->uploadStagingBuffer(chunkedVolumeData->getStagingBuffer(), voxelChunksBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
     voxelChunksBufferBaseAddress = pEngine->getBufferDeviceAddress(voxelChunksBuffer.buffer);
    
@@ -285,7 +292,7 @@ void OrganVisualizationChunksScene::loadData(uint32_t organID)
 
     gridSize = chunkSize;
     shellSize = chunkedVolumeData->getShellSize();
-    isovalue = 0.5f;
+    isovalue = 0.571f;
     prevFrameIsovalue = -isovalue; // something not equal to isovalue to trigger the first active chunk indices update
     MarchingCubesPass::SetGridShellSizes(gridSize, shellSize);
     MarchingCubesPass::SetInputIsovalue(isovalue);
@@ -293,16 +300,17 @@ void OrganVisualizationChunksScene::loadData(uint32_t organID)
     // Allocate Indirect Buffers
     const std::vector<VolumeChunk>& chunks = chunkedVolumeData->getChunks();
     std::vector<MarchingCubesIndirectPass::ChunkMetadata> chunkMetadata(numChunks);
-    for(int i = 0; i < numChunks; ++i)
     {
-        chunkMetadata[i].lowerCornerPos = chunks[i].lowerCornerPos;
-        chunkMetadata[i].upperCornerPos = chunks[i].upperCornerPos;
-        chunkMetadata[i].voxelBufferDeviceAddress = voxelChunksBufferBaseAddress + chunks[i].stagingBufferOffset;
+        std::vector<size_t> indices(numChunks);
+        std::iota(indices.begin(), indices.end(), 0);
+        std::for_each(std::execution::par, indices.begin(), indices.end(), [&](size_t i) {
+            chunkMetadata[i].lowerCornerPos = chunks[i].lowerCornerPos;
+            chunkMetadata[i].upperCornerPos = chunks[i].upperCornerPos;
+            chunkMetadata[i].voxelBufferDeviceAddress = voxelChunksBufferBaseAddress + chunks[i].stagingBufferOffset;
+        });
     }
     chunkMetadataBuffer = pEngine->createAndUploadGPUBuffer(numChunks * sizeof(MarchingCubesIndirectPass::ChunkMetadata), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, chunkMetadata.data());
     
-    glm::uvec3 chunkSize = chunkedVolumeData->getChunkSize();
-    uint32_t blockSize = 4; // The size of the blocks that task shader processes a chunk. Hardcoding it for now
     size_t maxNumTaskInvocations = numChunks * ((chunkSize.x * chunkSize.y * chunkSize.z) / (blockSize * blockSize * blockSize));
     chunkDrawDataBuffer = pEngine->createBuffer(maxNumTaskInvocations * sizeof(MarchingCubesIndirectPass::ChunkDrawData), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 
@@ -321,7 +329,7 @@ void OrganVisualizationChunksScene::loadData(uint32_t organID)
     ChunkVisualizationPass::SetInputIsovalue(isovalue);
 }
 
-std::pair<std::vector<float>, glm::uvec3> OrganVisualizationChunksScene::loadCTheadData() const
+std::pair<std::vector<uint8_t>, glm::uvec3> OrganVisualizationChunksScene::loadCTheadData() const
 {
     /*
          Load CT Head data. It is given in bytes. Format is 16-bit integers where two consecutive bytes make up one binary integer.
@@ -399,12 +407,17 @@ std::pair<std::vector<float>, glm::uvec3> OrganVisualizationChunksScene::loadCTh
     vkDestroyPipeline(pEngine->device, converterPipeline, nullptr);
     vkDestroyShaderModule(pEngine->device, converterComputeShader, nullptr);
     pEngine->destroyBuffer(sourceBuffer);
-
+    
     // Download the loaded and converted grid back to extract chunks
-    std::vector<float> gridData(gridSize.x * gridSize.y * gridSize.z);
+    size_t numPoints = gridSize.x * gridSize.y * gridSize.z;
+    std::vector<uint8_t> gridData(numPoints);
     AllocatedBuffer voxelBufferCPU = pEngine->downloadGPUBuffer(voxelBuffer.buffer, voxelBufferSize);
     float* pGridData = (float*)pEngine->getMappedStagingBufferData(voxelBufferCPU);
-    memcpy(gridData.data(), pGridData, voxelBufferSize);
+    std::vector<size_t> indices(numPoints);
+    std::iota(indices.begin(), indices.end(), 0);
+    std::for_each(std::execution::par, indices.begin(), indices.end(), [&](size_t i){
+        gridData[i] = std::round(pGridData[i] * 255.0);
+    });
     pEngine->destroyBuffer(voxelBuffer);
     pEngine->destroyBuffer(voxelBufferCPU);
 
@@ -412,7 +425,7 @@ std::pair<std::vector<float>, glm::uvec3> OrganVisualizationChunksScene::loadCTh
     return { gridData, glm::uvec3(gridSize.x, gridSize.z, gridSize.y) };
 }
 
-std::pair<std::vector<float>, glm::uvec3> OrganVisualizationChunksScene::loadOrganAtlasData(const char* organPathBase) const
+std::pair<std::vector<uint8_t>, glm::uvec3> OrganVisualizationChunksScene::loadOrganAtlasData(const char* organPathBase) const
 {
     // All the data in organ atlas has the same signature
     std::string binPath = std::string(organPathBase) + ".bin";
@@ -439,8 +452,8 @@ std::pair<std::vector<float>, glm::uvec3> OrganVisualizationChunksScene::loadOrg
         fmt::println("Could not open the file: {}", binPath);
     }
     size_t numElements = gridSize.x * gridSize.y * gridSize.z;
-    std::vector<float> buffer(numElements);
-    file.read(reinterpret_cast<char*>(buffer.data()), numElements * sizeof(float));
+    std::vector<uint8_t> buffer(numElements);
+    file.read(reinterpret_cast<char*>(buffer.data()), numElements * sizeof(uint8_t));
 
     file.close();
 

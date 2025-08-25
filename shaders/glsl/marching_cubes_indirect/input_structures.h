@@ -28,7 +28,7 @@ struct MCSettings
 
 layout(buffer_reference, scalar) readonly buffer VoxelBuffer
 {
-	float voxels[];
+	uint8_t voxels[];
 };
 
 /*
@@ -121,7 +121,7 @@ struct TaskPayload
 */
 float voxelValue(uint chunkID, uvec3 idx)
 {
-	return chunkMetadataBuffer.chunkMetadata[chunkID].voxelBufferDeviceAddress.voxels[idx.x + mcSettings.shellSize.x * (idx.y + mcSettings.shellSize.y * idx.z)];
+	return uint(chunkMetadataBuffer.chunkMetadata[chunkID].voxelBufferDeviceAddress.voxels[idx.x + mcSettings.shellSize.x * (idx.y + mcSettings.shellSize.y * idx.z)]) / 255.0;
 }
 
 bool projectBox(vec3 bmin, vec3 bmax, float znear, mat4 viewProjection, out vec4 aabb)

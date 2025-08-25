@@ -7,7 +7,7 @@
 #include <algorithm>
 #include <execution>
 
-ChunkedVolumeData::ChunkedVolumeData(VulkanEngine* engine, const std::vector<float>& volumeData, const glm::uvec3& gridSize_in, const glm::uvec3& chunkSize_in, const glm::vec3& gridLowerCornerPos_in, const glm::vec3& gridUpperCornerPos_in)
+ChunkedVolumeData::ChunkedVolumeData(VulkanEngine* engine, const std::vector<uint8_t>& volumeData, const glm::uvec3& gridSize_in, const glm::uvec3& chunkSize_in, const glm::vec3& gridLowerCornerPos_in, const glm::vec3& gridUpperCornerPos_in)
 	:
 	gridSize(gridSize_in),
 	chunkSize(chunkSize_in),
@@ -26,41 +26,33 @@ ChunkedVolumeData::ChunkedVolumeData(VulkanEngine* engine, const std::vector<flo
 	numChunks = (gridSize + chunkSize - 1u) / chunkSize;
 	size_t numChunksFlat = numChunks.z * numChunks.y * numChunks.x;
 	size_t numPointsPerChunk = (chunkSize.z + 2) * (chunkSize.y + 2) * (chunkSize.x + 2);
-	chunks.reserve(numChunksFlat);
 
 	// Allocate the staging buffer
-	size_t stagingBufferSize = numChunksFlat * numPointsPerChunk * sizeof(float);
+	size_t stagingBufferSize = numChunksFlat * numPointsPerChunk * sizeof(uint8_t);
 	chunksStagingBuffer = pEngine->createBuffer(stagingBufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
-	pChunksStagingBuffer = (float*)pEngine->getMappedStagingBufferData(chunksStagingBuffer);
-	/*
-		Set all to some constant. This guarantees that, the chunks that is partly outside of the grid (if the size along some axis is not multiple of chunk size) get a default value
-	*/
-	for(size_t i = 0; i < numChunksFlat * numPointsPerChunk; ++i)
-	{
-		pChunksStagingBuffer[i] = 0.0f;
-	}
+	pChunksStagingBuffer = (uint8_t*)pEngine->getMappedStagingBufferData(chunksStagingBuffer);
+	std::memset(pChunksStagingBuffer, 0, stagingBufferSize);
 
-	// Divide volume into chunks
-	for(size_t z = 0; z < numChunks.z; ++z)
-	{
-		for(size_t y = 0; y < numChunks.y; ++y)
-		{
-			for(size_t x = 0; x < numChunks.x; ++x)
-			{
-				VolumeChunk chunk;
-				chunk.chunkIndex = glm::uvec3(x, y, z);
-				extractChunkData(volumeData, x + numChunks.x * (y + numChunks.y * z), chunk);
-				chunks.push_back(chunk);
-			}
-		}
-	}
+	chunks.resize(numChunksFlat);
+	std::vector<size_t> indices(numChunksFlat);
+	std::iota(indices.begin(), indices.end(), 0);
+	std::for_each(std::execution::par, indices.begin(), indices.end(),[&](size_t idx){
+		size_t z = idx / (numChunks.x * numChunks.y);
+		size_t y = (idx / numChunks.x) % numChunks.y;
+		size_t x = idx % numChunks.x;
+
+		VolumeChunk chunk;
+		chunk.chunkIndex = glm::uvec3(x, y, z);
+		extractChunkData(volumeData, idx, chunk);
+
+		chunks[idx] = std::move(chunk);
+	});
 
 	// Construct the interval tree
 	std::vector<VolumeChunk*> chunkAddresses(numChunksFlat);
-	for(int i = 0; i < numChunksFlat; ++i)
-	{
+	std::for_each(std::execution::par, indices.begin(), indices.end(),[&](size_t i){
 		chunkAddresses[i] = &chunks[i];
-	}
+	});
 
 	intervalTree.build(chunkAddresses);
 }
@@ -116,93 +108,6 @@ const std::vector<VolumeChunk>& ChunkedVolumeData::getChunks() const
 	return chunks;
 }
 
-void ChunkedVolumeData::computeChunkIsoValueHistograms(float minIsoValue, float maxIsoValue, size_t numBins)
-{
-	float stepSize = (maxIsoValue - minIsoValue) / (numBins - 1);
-	glm::uvec3 pointsPerChunk = chunkSize + 2u;
-
-	// Parallelize outer loop over chunks
-	std::for_each(std::execution::par, chunks.begin(), chunks.end(), [&](VolumeChunk& c)
-	{
-		size_t chunkFloatOffset = c.stagingBufferOffset / sizeof(float);
-		float* pChunk = pChunksStagingBuffer + chunkFloatOffset;
-
-		// Pre-allocate and initialize the histogram bins
-		c.isoValueHistogram.resize(numBins);
-		for(size_t b = 0; b < numBins; ++b)
-		{
-			c.isoValueHistogram[b] = { minIsoValue + b * stepSize, 0 };
-		}
-
-		float values[8];
-
-		for(size_t z = 0; z < chunkSize.z; ++z)
-		{
-			for(size_t y = 0; y < chunkSize.y; ++y)
-			{
-				for(size_t x = 0; x < chunkSize.x; ++x)
-				{
-					// Fetch voxel corner values
-					values[0] = pChunk[(x + 0) + pointsPerChunk.x * ((y + 0) + pointsPerChunk.y * (z + 0))];
-					values[1] = pChunk[(x + 1) + pointsPerChunk.x * ((y + 0) + pointsPerChunk.y * (z + 0))];
-					values[2] = pChunk[(x + 0) + pointsPerChunk.x * ((y + 1) + pointsPerChunk.y * (z + 0))];
-					values[3] = pChunk[(x + 1) + pointsPerChunk.x * ((y + 1) + pointsPerChunk.y * (z + 0))];
-					values[4] = pChunk[(x + 0) + pointsPerChunk.x * ((y + 0) + pointsPerChunk.y * (z + 1))];
-					values[5] = pChunk[(x + 1) + pointsPerChunk.x * ((y + 0) + pointsPerChunk.y * (z + 1))];
-					values[6] = pChunk[(x + 0) + pointsPerChunk.x * ((y + 1) + pointsPerChunk.y * (z + 1))];
-					values[7] = pChunk[(x + 1) + pointsPerChunk.x * ((y + 1) + pointsPerChunk.y * (z + 1))];
-
-					// Loop through bins
-					for(size_t b = 0; b < numBins; ++b)
-					{
-						float currentIsoValue = c.isoValueHistogram[b].first;
-
-						uint32_t cubeIndex = 0;
-						cubeIndex |= (values[0] >= currentIsoValue) << 0;
-						cubeIndex |= (values[1] >= currentIsoValue) << 1;
-						cubeIndex |= (values[2] >= currentIsoValue) << 2;
-						cubeIndex |= (values[3] >= currentIsoValue) << 3;
-						cubeIndex |= (values[4] >= currentIsoValue) << 4;
-						cubeIndex |= (values[5] >= currentIsoValue) << 5;
-						cubeIndex |= (values[6] >= currentIsoValue) << 6;
-						cubeIndex |= (values[7] >= currentIsoValue) << 7;
-
-						if(cubeIndex != 0 && cubeIndex != 0xFF)
-						{
-							c.isoValueHistogram[b].second += MarchingCubesLookupTable[cubeIndex].TriangleCount;
-						}
-					}
-				}
-			}
-		}
-	});
-}
-
-size_t ChunkedVolumeData::estimateNumTriangles(const VolumeChunk& chunk, float isoValue) const
-{
-	const std::vector<std::pair<float, size_t>>& h = chunk.isoValueHistogram;
-	// Find the left and right bins that input iso value falls between (the histogram itself is sorted so a binary range search is possible)
-	int left = 0;
-	int right = h.size() - 1;
-	while(right - left > 1)
-	{
-		int mid = (left + right) / 2;
-		float iso = h[mid].first;
-		if(iso < isoValue)
-		{
-			left = mid;
-		}
-		else
-		{
-			right = mid;
-		}
-	}
-
-	// Estimate by lerping and rounding
-	float alpha = (isoValue - h[left].first) / (h[right].first - h[left].first);
-	return (1.0f - alpha) * h[left].second + alpha * h[right].second;
-}
-
 ChunkedVolumeData::~ChunkedVolumeData()
 {
 	if(chunksStagingBuffer.buffer != VK_NULL_HANDLE)
@@ -214,7 +119,7 @@ ChunkedVolumeData::~ChunkedVolumeData()
 /*
 	Extracts and writes the data of the chunk into the staging buffer
 */
-void ChunkedVolumeData::extractChunkData(const std::vector<float>& volumeData, size_t chunkFlatIndex, VolumeChunk& chunk)
+void ChunkedVolumeData::extractChunkData(const std::vector<uint8_t>& volumeData, size_t chunkFlatIndex, VolumeChunk& chunk)
 {
 	chunk.chunkFlatIndex = chunkFlatIndex;
 
@@ -233,9 +138,9 @@ void ChunkedVolumeData::extractChunkData(const std::vector<float>& volumeData, s
 
 	// Compute and store the offset of the given chunk in the staging buffer
 	size_t chunkVoxelsFlatIndex = chunkFlatIndex * ((chunkSize.x + 2) * (chunkSize.y + 2) * (chunkSize.z + 2)); // the actual starting index of the voxels of the chunk in the staging buffer
-	chunk.stagingBufferOffset = chunkVoxelsFlatIndex * sizeof(float);
+	chunk.stagingBufferOffset = chunkVoxelsFlatIndex * sizeof(uint8_t);
 	
-	float* pChunkVoxels = pChunksStagingBuffer + chunkVoxelsFlatIndex;
+	uint8_t* pChunkVoxels = pChunksStagingBuffer + chunkVoxelsFlatIndex;
 
 	glm::uvec3 pointsPerChunk = chunkSize + 2u; 
 
@@ -245,9 +150,10 @@ void ChunkedVolumeData::extractChunkData(const std::vector<float>& volumeData, s
 		{
 			for(size_t x = startIndex.x; x < endIndex.x; ++x)
 			{
-				float val = volumeData[x + gridSize.x * (y + gridSize.y * z)];
-				chunk.minIsoValue = std::min(chunk.minIsoValue, val);
-				chunk.maxIsoValue = std::max(chunk.maxIsoValue, val);
+				uint8_t val = volumeData[x + gridSize.x * (y + gridSize.y * z)];
+				float decompressedVal = val / 255.0f;
+				chunk.minIsoValue = std::min(chunk.minIsoValue, decompressedVal);
+				chunk.maxIsoValue = std::max(chunk.maxIsoValue, decompressedVal);
 				// Write the value into the correct position in the staging buffer
 				glm::uvec3 localIdx = glm::uvec3(x, y, z) - startIndex;
 				pChunkVoxels[localIdx.x + pointsPerChunk.x * (localIdx.y + pointsPerChunk.y * localIdx.z)] = val;

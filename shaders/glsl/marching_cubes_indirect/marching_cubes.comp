@@ -1,11 +1,13 @@
 #version 450
 #extension GL_GOOGLE_include_directive : enable
+#extension GL_KHR_shader_subgroup_arithmetic : require
+#extension GL_KHR_shader_subgroup_ballot : require
 
 #include "input_structures.h"
 
 layout(set = 1, binding = 0) uniform sampler2D depthPyramid;
 
-layout(local_size_x = 64, local_size_x = 1, local_size_z = 1) in;
+layout(local_size_x = 128, local_size_x = 1, local_size_z = 1) in;
 
 bool occlusionTest(vec3 lowerCornerPos, vec3 upperCornerPos)
 {
@@ -80,28 +82,76 @@ bool cullTest(vec3 lowerCornerPos, vec3 upperCornerPos)
     return false;
 }
 
+uvec3 decodeBlock(uint blockLinear, uvec3 n)
+{
+    uint xy = n.x * n.y;
+    uint z = blockLinear / xy;
+    uint remaining = blockLinear % xy;
+    uint y = remaining / n.x;
+    uint x = remaining % n.x;
+    return uvec3(x, y, z);
+}
+
 void main()
 {
-    // Each thread works on a chunk
-    uint id = gl_GlobalInvocationID.x;
-    
-    if(id >= numActiveChunks)
+    // Per-chunk subdivision
+    const uvec3 groupsPerChunk = mcSettings.gridSize / uvec3(BLOCK_SIZE);
+    const uint  blocksPerChunk = groupsPerChunk.x * groupsPerChunk.y * groupsPerChunk.z;
+
+    // Flat global task index over all (chunk, block) pairs
+    uint gtid = gl_GlobalInvocationID.x;
+    uint totalTasks = numActiveChunks * blocksPerChunk;
+    if (gtid >= totalTasks) return;
+
+    uint chunkRank = gtid / blocksPerChunk;
+    uint blockRank = gtid - chunkRank * blocksPerChunk;
+
+    uint chunkID = activeChunkIndicesBuffer.activeChunkIndices[chunkRank];
+    ChunkMetadata metadata = chunkMetadataBuffer.chunkMetadata[chunkID];
+
+    // Cheap coarse chunk cull
+    if (!cullTest(metadata.lowerCornerPos, metadata.upperCornerPos)) 
     {
         return;
     }
 
-    uint chunkID = activeChunkIndicesBuffer.activeChunkIndices[id];
-    ChunkMetadata metadata = chunkMetadataBuffer.chunkMetadata[chunkID];
+    // This thread's block coordinates in the chunk
+    uvec3 b = decodeBlock(blockRank, groupsPerChunk);
 
-    if(cullTest(metadata.lowerCornerPos, metadata.upperCornerPos))
+    // Block AABB
+    vec3 blockStep = ((metadata.upperCornerPos - metadata.lowerCornerPos) / vec3(mcSettings.gridSize)) * float(BLOCK_SIZE);
+
+    vec3 stepX = vec3(blockStep.x, 0.0, 0.0);
+    vec3 stepY = vec3(0.0, blockStep.y, 0.0);
+    vec3 stepZ = vec3(0.0, 0.0, blockStep.z);
+
+    vec3 blockLower = metadata.lowerCornerPos + float(b.x) * stepX + float(b.y) * stepY + float(b.z) * stepZ;
+    vec3 blockUpper = blockLower + blockStep;
+
+    // Fine cull per block
+    bool survive = cullTest(blockLower, blockUpper);
+
+    // Subgroup-aggregated compaction
+    uint vote   = survive ? 1u : 0u;
+    uint prefix = subgroupExclusiveAdd(vote); // survivors before me in this subgroup
+    uint live   = subgroupAdd(vote);          // total survivors in this subgroup
+
+    if (live == 0u) return;
+
+    // One atomic per subgroup to reserve a contiguous span
+    uint base = 0u;
+    if (subgroupElect()) 
     {
-        uint numTaskGroups = (mcSettings.gridSize.x * mcSettings.gridSize.y * mcSettings.gridSize.z) / (BLOCK_SIZE * BLOCK_SIZE * BLOCK_SIZE); // Grid size (chunk size) will always be a multiple of 2 and bigger than BLOCK_SIZE, so no need for ceil  
-        uint gid = atomicAdd(drawChunkCountBuffer.drawChunkCount, numTaskGroups);
-        
-        for(uint i = 0; i < numTaskGroups; ++i)
-        {
-            chunkDrawDataBuffer.chunkDrawData[gid + i].chunkID = chunkID;
-            chunkDrawDataBuffer.chunkDrawData[gid + i].localWorkgroupID = i;
-        }  
+        base = atomicAdd(drawChunkCountBuffer.drawChunkCount, live);
+    }
+    
+    // Tell everyone else in the subgroup the value
+    base = subgroupBroadcastFirst(base);
+
+    if (survive) 
+    {
+        uint outIndex = base + prefix;
+        chunkDrawDataBuffer.chunkDrawData[outIndex].chunkID = chunkID;
+        chunkDrawDataBuffer.chunkDrawData[outIndex].localWorkgroupID = b.x + groupsPerChunk.x * (b.y + groupsPerChunk.y * b.z);
     }
 }
