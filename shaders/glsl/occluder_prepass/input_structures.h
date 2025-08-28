@@ -1,0 +1,40 @@
+#extension GL_EXT_scalar_block_layout : require
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_shader_8bit_storage : require
+
+layout(set = 0, binding = 0, scalar) uniform SceneData
+{
+	mat4 view;
+	mat4 proj;
+	mat4 viewproj;
+	vec4 ambientColor;
+	vec4 sunlightDirection; //w for sun power
+	vec4 sunlightColor;
+} sceneData;
+
+// Disgusting solution. Not needed but have to declare to be able to use existing ChunkMetadata data
+layout(buffer_reference, scalar) readonly buffer VoxelBuffer
+{
+	uint8_t voxels[];
+};
+
+/*
+	Chunk metadata unique to that chunk. This buffer already exist on the GPU side so I am just reusing it
+*/
+struct ChunkMetadata
+{
+	// Positional Limits of the Grid
+	vec3 lowerCornerPos;
+	vec3 upperCornerPos;
+	VoxelBuffer voxelBufferDeviceAddress; // not used in this shader
+};
+
+layout(buffer_reference, scalar) readonly buffer ChunkMetadataBuffer
+{
+	ChunkMetadata chunkMetadata[];
+};
+
+layout(push_constant, scalar) uniform PushConstants
+{
+	ChunkMetadataBuffer chunkMetadataBuffer;
+};

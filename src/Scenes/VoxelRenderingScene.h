@@ -5,6 +5,7 @@
 #include <Pass/VoxelRenderingIndirectPass.h>
 #include <Pass/ChunkVisualizationPass.h>
 #include <Pass/HZBDownSamplePass.h>
+#include <Pass/OccluderPrePass.h>
 
 #include <Data/ChunkedVolumeData.h>
 

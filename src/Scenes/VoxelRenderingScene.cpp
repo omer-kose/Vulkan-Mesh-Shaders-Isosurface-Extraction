@@ -119,7 +119,8 @@ void VoxelRenderingScene::drawFrame(VkCommandBuffer cmd)
         ChunkVisualizationPass::Execute(pEngine, cmd, chunkedVolumeData->getNumChunksFlat(), 3.0f);
     }
 
-    VoxelRenderingIndirectPass::ExecuteGraphicsPass(pEngine, cmd, drawChunkCountBuffer.buffer);
+    // VoxelRenderingIndirectPass::ExecuteGraphicsPass(pEngine, cmd, drawChunkCountBuffer.buffer);
+    OccluderPrePass::Execute(pEngine, cmd, chunkedVolumeData->getNumChunksFlat());
 }
 
 void VoxelRenderingScene::performPreRenderPassOps(VkCommandBuffer cmd)
@@ -257,6 +258,9 @@ void VoxelRenderingScene::loadData(uint32_t modelID)
     VoxelRenderingIndirectPass::SetNumChunks(chunkedVolumeData->getNumChunksFlat());
     glm::vec3 voxelSize = (gridUpperCornerPos - gridLowerCornerPos) / glm::vec3(gridSize - 1u);
     VoxelRenderingIndirectPass::SetVoxelSize(voxelSize);
+
+    // Occluder Prepass params
+    OccluderPrePass::SetChunkMetadataBufferAddress(pEngine->getBufferDeviceAddress(chunkMetadataBuffer.buffer));
 
     // Prepare Chunk Visualization
     createChunkVisualizationBuffer(chunkedVolumeData->getChunks());

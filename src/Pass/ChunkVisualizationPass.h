@@ -21,7 +21,6 @@ public:
 private:
 	static VkPipeline Pipeline;
 	static VkPipelineLayout PipelineLayout;
-	static VkDescriptorSet MCDescriptorSet; // set=1
 	// Resources
 	static ChunkVisPushConstants PushConstants; // MC Settings are kept track of via PushConstants. Engine can modify this via Update functions
 };

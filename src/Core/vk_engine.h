@@ -11,6 +11,7 @@
 #include <Pass/HZBDownSamplePass.h>
 #include <Pass/MarchingCubesIndirectPass.h>
 #include <Pass/VoxelRenderingIndirectPass.h>
+#include <Pass/OccluderPrePass.h>
 
 #include <Scenes/OrganVisualizationScene.h>
 #include <Scenes/VoxelRenderingScene.h>
