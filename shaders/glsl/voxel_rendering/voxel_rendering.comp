@@ -1,0 +1,156 @@
+#version 450
+#extension GL_GOOGLE_include_directive : enable
+#extension GL_KHR_shader_subgroup_arithmetic : require
+#extension GL_KHR_shader_subgroup_ballot : require
+
+#include "input_structures.h"
+
+layout(set = 1, binding = 0) uniform sampler2D depthPyramid;
+
+layout(local_size_x = 128, local_size_x = 1, local_size_z = 1) in;
+
+bool occlusionTest(vec3 lowerCornerPos, vec3 upperCornerPos)
+{
+	vec3 center = (lowerCornerPos + upperCornerPos) / 2.0f;
+	center = (sceneData.view * vec4(center, 1)).xyz;
+	float radius = length(upperCornerPos - lowerCornerPos) / 2.0f; 
+	vec4 aabb;
+	bool visible = false;
+	if (projectBox(lowerCornerPos, upperCornerPos, zNear, sceneData.viewproj, aabb))
+	{
+		float width = (aabb.z - aabb.x) * depthPyramidWidth;
+		float height = (aabb.w - aabb.y) * depthPyramidHeight;
+
+		float level = floor(log2(max(width, height)));
+
+		// Sampler is set up to do min reduction, so this computes the minimum depth of a 2x2 texel quad
+		float sampledDepth = textureLod(depthPyramid, (aabb.xy + aabb.zw) * 0.5, level).x;
+		float currentDepth = zNear / (-center.z - radius);
+		visible = currentDepth > sampledDepth;
+	}
+
+	return visible;
+}
+
+// TODO: Precompute and store frustum planes
+bool frustumCullTest(vec3 bmin, vec3 bmax)
+{
+    // Test all 8 corners against clip space [-w, w]
+    // Reject if all are outside the same plane
+    vec4 corners[8] = {
+        sceneData.viewproj * vec4(bmin.x, bmin.y, bmin.z, 1.0),
+        sceneData.viewproj * vec4(bmax.x, bmin.y, bmin.z, 1.0),
+        sceneData.viewproj * vec4(bmin.x, bmax.y, bmin.z, 1.0),
+        sceneData.viewproj * vec4(bmax.x, bmax.y, bmin.z, 1.0),
+        sceneData.viewproj * vec4(bmin.x, bmin.y, bmax.z, 1.0),
+        sceneData.viewproj * vec4(bmax.x, bmin.y, bmax.z, 1.0),
+        sceneData.viewproj * vec4(bmin.x, bmax.y, bmax.z, 1.0),
+        sceneData.viewproj * vec4(bmax.x, bmax.y, bmax.z, 1.0)
+    };
+
+    for(int plane = 0; plane < 6; ++plane) 
+    {
+        int outsideCount = 0;
+        for (int i = 0; i < 8; ++i) 
+        {
+            vec4 p = corners[i];
+            float w = p.w;
+            float v;
+            if (plane == 0) v =  p.x + w; // left   (x >= -w)
+            if (plane == 1) v = -p.x + w; // right  (x <= w)
+            if (plane == 2) v =  p.y + w; // bottom (y >= -w)
+            if (plane == 3) v = -p.y + w; // top    (y <= w)
+            if (plane == 4) v =  p.z + w; // near   (z >= -w in GL)
+            if (plane == 5) v = -p.z + w; // far    (z <= w in GL)
+            if (v < 0) outsideCount++;
+        }
+        if (outsideCount == 8) return false; // completely outside
+    }
+    return true;
+}
+
+bool cullTest(vec3 lowerCornerPos, vec3 upperCornerPos)
+{
+    if(frustumCullTest(lowerCornerPos, upperCornerPos))
+    {
+        if(occlusionTest(lowerCornerPos, upperCornerPos))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+uvec3 decodeBlock(uint blockLinear, uvec3 n)
+{
+    uint xy = n.x * n.y;
+    uint z = blockLinear / xy;
+    uint remaining = blockLinear % xy;
+    uint y = remaining / n.x;
+    uint x = remaining % n.x;
+    return uvec3(x, y, z);
+}
+
+void main()
+{
+    // Per-chunk subdivision
+    const uvec3 groupsPerChunk = chunkSize / uvec3(BLOCK_SIZE);
+    const uint  blocksPerChunk = groupsPerChunk.x * groupsPerChunk.y * groupsPerChunk.z;
+
+    // Flat global task index over all (chunk, block) pairs
+    uint gtid = gl_GlobalInvocationID.x;
+    uint totalTasks = numChunks * blocksPerChunk;
+    if (gtid >= totalTasks) return;
+
+    uint chunkID = gtid / blocksPerChunk;
+    uint blockID = gtid - chunkID * blocksPerChunk;
+
+    ChunkMetadata metadata = chunkMetadataBuffer.chunkMetadata[chunkID];
+
+    // Cheap coarse chunk cull
+    if (!cullTest(metadata.lowerCornerPos, metadata.upperCornerPos)) 
+    {
+        return;
+    }
+
+    // This thread's block coordinates in the chunk
+    uvec3 b = decodeBlock(blockID, groupsPerChunk);
+
+    // Block AABB
+    vec3 blockStep = ((metadata.upperCornerPos - metadata.lowerCornerPos) / vec3(chunkSize)) * float(BLOCK_SIZE);
+
+    vec3 stepX = vec3(blockStep.x, 0.0, 0.0);
+    vec3 stepY = vec3(0.0, blockStep.y, 0.0);
+    vec3 stepZ = vec3(0.0, 0.0, blockStep.z);
+
+    vec3 blockLower = metadata.lowerCornerPos + float(b.x) * stepX + float(b.y) * stepY + float(b.z) * stepZ;
+    vec3 blockUpper = blockLower + blockStep;
+
+    // Fine cull per block
+    bool survive = cullTest(blockLower, blockUpper);
+
+    // Subgroup-aggregated compaction
+    uint vote   = survive ? 1u : 0u;
+    uint prefix = subgroupExclusiveAdd(vote); // survivors before me in this subgroup
+    uint live   = subgroupAdd(vote);          // total survivors in this subgroup
+
+    if (live == 0u) return;
+
+    // One atomic per subgroup to reserve a contiguous span
+    uint base = 0u;
+    if (subgroupElect()) 
+    {
+        base = atomicAdd(drawChunkCountBuffer.drawChunkCount, live);
+    }
+    
+    // Tell everyone else in the subgroup the value
+    base = subgroupBroadcastFirst(base);
+
+    if (survive) 
+    {
+        uint outIndex = base + prefix;
+        chunkDrawDataBuffer.chunkDrawData[outIndex].chunkID = chunkID;
+        chunkDrawDataBuffer.chunkDrawData[outIndex].localWorkgroupID = b.x + groupsPerChunk.x * (b.y + groupsPerChunk.y * b.z);
+    }
+}

@@ -2,14 +2,13 @@
 
 #include "Scene.h"
 
-#include <Pass/MarchingCubesPass.h>
-#include <Pass/CircleGridPlanePass.h>
+#include <Pass/VoxelRenderingIndirectPass.h>
 #include <Pass/ChunkVisualizationPass.h>
 #include <Pass/HZBDownSamplePass.h>
 
 #include <Data/ChunkedVolumeData.h>
 
-class OrganVisualizationChunksScene : public Scene
+class VoxelRenderingScene : public Scene
 {
 public:
 	virtual void load(VulkanEngine* engine) override;
@@ -19,37 +18,31 @@ public:
 	virtual void drawFrame(VkCommandBuffer cmd) override; // called by drawing logic in engine to draw the scene
 	virtual void performPreRenderPassOps(VkCommandBuffer cmd); // called before drawFrame to perform any operations that would like to be done after rendering 
 	virtual void performPostRenderPassOps(VkCommandBuffer cmd); // called after drawFrame to perform any operations that would like to be done after rendering 
-	virtual ~OrganVisualizationChunksScene();
+	virtual ~VoxelRenderingScene();
 private:
-	void loadData(uint32_t organID);
-	std::pair<std::vector<uint8_t>, glm::uvec3> loadCTheadData() const;
-	std::pair<std::vector<uint8_t>, glm::uvec3> loadOrganAtlasData(const char* organPathBase) const;
+	void loadData(uint32_t modelID);
 	void clearBuffers();
 
+	std::vector<uint8_t> createRandomVoxelData(const glm::uvec3& gridSize);
 	void createChunkVisualizationBuffer(const std::vector<VolumeChunk>& chunks);
 private:
 	// Data Loading Params
-	std::vector<std::string> organNames; // This is for selecting the organ data from UI. The names are hardcoded. 
-	uint32_t selectedOrganID; // Keep track of the current data ID to see if the data is changed.
+	// std::vector<std::string> modelNames; // This is for selecting the organ data from UI. The names are hardcoded. 
+	uint32_t selectedModelID; // Keep track of the current data ID to see if the data is changed.
 private:
-	glm::uvec3 gridSize;
-	glm::uvec3 shellSize;
-	float prevFrameIsovalue; // To keep track of change in isovalue to trigger active chunk indices update 
-	float isovalue;
-	std::unique_ptr<ChunkedVolumeData<uint8_t>> chunkedVolumeData;
 	glm::uvec3 chunkSize;
+	glm::uvec3 shellSize;
+	glm::vec3 gridLowerCornerPos; // in world space
+	glm::vec3 gridUpperCornerPos; // in world space
+	std::unique_ptr<ChunkedVolumeData<uint8_t>> chunkedVolumeData;
 	AllocatedBuffer voxelChunksBuffer; // a pre-determined sized buffer that holds all the chunks
 	VkDeviceAddress voxelChunksBufferBaseAddress;
 	AllocatedBuffer chunkVisualizationBuffer;
 	VkDeviceAddress chunkVisualizationBufferAddress;
 	bool showChunks = false;
 	// Indirect 
-	bool indirect = true;
 	AllocatedBuffer chunkMetadataBuffer;
 	AllocatedBuffer chunkDrawDataBuffer;
-	uint32_t numActiveChunks; // Keep track of it as it is needed for compute dispatch
-	AllocatedBuffer activeChunkIndicesStagingBuffer; // when isovalue changes active indices change so for an update, I will be keeping this around
-	AllocatedBuffer activeChunkIndicesBuffer;
 	AllocatedBuffer drawChunkCountBuffer;
 private:
 	// Dispatch related constants
