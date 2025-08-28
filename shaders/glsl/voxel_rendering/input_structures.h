@@ -20,7 +20,7 @@ layout(set = 0, binding = 0, scalar) uniform SceneData
 
 layout(buffer_reference, scalar) readonly buffer VoxelBuffer
 {
-	uint voxels[]; // Contains color data. If 0 that means Voxel is not solid (not occupied).
+	uint8_t voxels[]; // Contains color data. If 0 that means Voxel is not solid (not occupied).
 };
 
 /*
@@ -28,8 +28,9 @@ layout(buffer_reference, scalar) readonly buffer VoxelBuffer
 */
 struct ChunkMetadata
 {
-	// Positional Information
-	vec3 center; // World space center of the chunk
+	// Positional Limits of the Grid
+	vec3 lowerCornerPos;
+	vec3 upperCornerPos;
 	VoxelBuffer voxelBufferDeviceAddress; // base address of the voxels of the chunk in the Voxel Buffer
 };
 
@@ -70,7 +71,7 @@ layout(buffer_reference, scalar) buffer DrawChunkCountBuffer
 
 layout(push_constant, scalar) uniform PushConstants
 {
-	uvec3 gridSize; // The size of the grid that the task and mesh shader sees. For them world is a single chunk that they are working on
+	uvec3 chunkSize;
 	uvec3 shellSize; // For chunks a shell with +2 on right-bottom-front boundaries for correct computation. For voxel rendering, only +1 is enough to check neighbor occupation but I use the same chuking strategy for both MC and Voxel rendering
 	vec3 voxelSize; // Size of a singular voxel. All the voxels are uniformly shaped
 	uint numChunks;
@@ -100,7 +101,7 @@ struct TaskPayload
 */
 uint voxelValue(uint chunkID, uvec3 idx)
 {
-	return chunkMetadataBuffer.chunkMetadata[chunkID].voxelBufferDeviceAddress.voxels[idx.x + mcSettings.shellSize.x * (idx.y + mcSettings.shellSize.y * idx.z)];
+	return uint(chunkMetadataBuffer.chunkMetadata[chunkID].voxelBufferDeviceAddress.voxels[idx.x + shellSize.x * (idx.y + shellSize.y * idx.z)]);
 }
 
 bool projectBox(vec3 bmin, vec3 bmax, float znear, mat4 viewProjection, out vec4 aabb)

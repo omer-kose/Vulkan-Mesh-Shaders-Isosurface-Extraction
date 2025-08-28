@@ -29,11 +29,10 @@ const ivec3 neighborOffset[6] = ivec3[6](
 /* 
 	The thread that works on its face will check the corresponding neighbor for occupation. If the neighbor is occupied that face will never be visible anyways. So, no need to render it.
 */
-bool neighborOccupied(uint chunkID, uvec3 voxelID, int faceId) 
+bool neighborOccupied(uint chunkID, uvec3 voxelID, uint faceId) 
 {
 	// Index of the neighbor
     ivec3 neighborID = ivec3(voxelID) + neighborOffset[faceId];
-    // bounds check (pseudo, you’ll adapt to your chunk storage)
     if (neighborID.x < 0 || neighborID.y < 0 || neighborID.z < 0) return false;
 	return voxelValue(chunkID, neighborID) != 0;
 }
@@ -90,12 +89,15 @@ void main()
 	const uint threadID  = gl_LocalInvocationID.x;
 	const uint meshletID = taskPayload.meshlets[gl_WorkGroupID.x].meshletID;
 	const uint chunkID = taskPayload.chunkID;
-	vec3 voxelCenter = chunkMetadataBuffer[chunkID].center;
+    ChunkMetadata metadata = chunkMetadataBuffer.chunkMetadata[chunkID];
 
 	// Reconstruct (firstVoxelID_X, firstVoxelID_Y, firstVoxelID_Z) from MeshletID
-    uint firstVoxelID_X = meshletID % mcSettings.gridSize.x;
-    uint firstVoxelID_Y = (meshletID / mcSettings.gridSize.x) % mcSettings.gridSize.y;
-    uint firstVoxelID_Z = meshletID / (mcSettings.gridSize.x * mcSettings.gridSize.y);
+    uint firstVoxelID_X = meshletID % chunkSize.x;
+    uint firstVoxelID_Y = (meshletID / chunkSize.x) % chunkSize.y;
+    uint firstVoxelID_Z = meshletID / (chunkSize.x * chunkSize.y);
+
+    vec3 voxelStep = (metadata.upperCornerPos - metadata.lowerCornerPos) / vec3(chunkSize);
+    vec3 voxelCenter = metadata.lowerCornerPos + vec3(firstVoxelID_X, firstVoxelID_Y, firstVoxelID_Z) * voxelStep;
 
 	// Decide the faces to render
 	bool keep = false; // Only 6 threads will modify this on their stack
@@ -123,10 +125,10 @@ void main()
 			case 5:
 				cameraSide = (voxelToCamera.z < 0.0); // -Z
 				break;
-
-			bool blocked = neighborOccupied(chunkID, uvec3(firstVoxelID_X, firstVoxelID_Y, firstVoxelID_Z), threadID);
-			keep = cameraSide && !blocked;
 		}
+
+        bool blocked = neighborOccupied(chunkID, uvec3(firstVoxelID_X, firstVoxelID_Y, firstVoxelID_Z), threadID);
+        keep = cameraSide && !blocked;
 	}
 
 	// Find the total number of faces to be rendered
@@ -147,12 +149,12 @@ void main()
 
 		vec3 P[4];
         makeFaceCorners(int(threadID), voxelCenter, voxelSize, P);
-        vec3 N = faceNormals[lane];
+        vec3 N = neighborOffset[threadID];
 
 		for (uint i = 0u; i < 4u; ++i) 
 		{
-            gl_MeshVerticesEXT[baseV + i].gl_Position = sceneData.viewProj * vec4(P[i], 1.0);
-            meshOut[baseV + i].normal      = N;
+            gl_MeshVerticesEXT[baseV + i].gl_Position = sceneData.viewproj * vec4(P[i], 1.0);
+            meshOut[baseV + i].normal = N;
         }
 
         gl_PrimitiveTriangleIndicesEXT[baseP + 0] = uvec3(baseV+0, baseV+1, baseV+2);

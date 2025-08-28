@@ -10,8 +10,10 @@
 #include <Pass/MarchingCubesPass.h>
 #include <Pass/HZBDownSamplePass.h>
 #include <Pass/MarchingCubesIndirectPass.h>
+#include <Pass/VoxelRenderingIndirectPass.h>
 
 #include <Scenes/OrganVisualizationScene.h>
+#include <Scenes/VoxelRenderingScene.h>
 
 struct DeletionQueue
 {

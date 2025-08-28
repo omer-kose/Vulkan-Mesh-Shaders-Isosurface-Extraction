@@ -95,18 +95,17 @@ uvec3 decodeBlock(uint blockLinear, uvec3 n)
 void main()
 {
     // Per-chunk subdivision
-    const uvec3 groupsPerChunk = mcSettings.gridSize / uvec3(BLOCK_SIZE);
+    const uvec3 groupsPerChunk = chunkSize / uvec3(BLOCK_SIZE);
     const uint  blocksPerChunk = groupsPerChunk.x * groupsPerChunk.y * groupsPerChunk.z;
 
     // Flat global task index over all (chunk, block) pairs
     uint gtid = gl_GlobalInvocationID.x;
-    uint totalTasks = numActiveChunks * blocksPerChunk;
+    uint totalTasks = numChunks * blocksPerChunk;
     if (gtid >= totalTasks) return;
 
-    uint chunkRank = gtid / blocksPerChunk;
-    uint blockRank = gtid - chunkRank * blocksPerChunk;
+    uint chunkID = gtid / blocksPerChunk;
+    uint blockID = gtid - chunkID * blocksPerChunk;
 
-    uint chunkID = activeChunkIndicesBuffer.activeChunkIndices[chunkRank];
     ChunkMetadata metadata = chunkMetadataBuffer.chunkMetadata[chunkID];
 
     // Cheap coarse chunk cull
@@ -116,10 +115,10 @@ void main()
     }
 
     // This thread's block coordinates in the chunk
-    uvec3 b = decodeBlock(blockRank, groupsPerChunk);
+    uvec3 b = decodeBlock(blockID, groupsPerChunk);
 
     // Block AABB
-    vec3 blockStep = ((metadata.upperCornerPos - metadata.lowerCornerPos) / vec3(mcSettings.gridSize)) * float(BLOCK_SIZE);
+    vec3 blockStep = ((metadata.upperCornerPos - metadata.lowerCornerPos) / vec3(chunkSize)) * float(BLOCK_SIZE);
 
     vec3 stepX = vec3(blockStep.x, 0.0, 0.0);
     vec3 stepY = vec3(0.0, blockStep.y, 0.0);
