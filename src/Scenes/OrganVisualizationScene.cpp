@@ -286,12 +286,11 @@ void OrganVisualizationChunksScene::loadData(uint32_t organID)
     const std::vector<VolumeChunk>& chunks = chunkedVolumeData->getChunks();
     std::vector<MarchingCubesIndirectPass::ChunkMetadata> chunkMetadata(numChunks);
     {
-        std::vector<size_t> indices(numChunks);
-        std::iota(indices.begin(), indices.end(), 0);
-        std::for_each(std::execution::par, indices.begin(), indices.end(), [&](size_t i) {
-            chunkMetadata[i].lowerCornerPos = chunks[i].lowerCornerPos;
-            chunkMetadata[i].upperCornerPos = chunks[i].upperCornerPos;
-            chunkMetadata[i].voxelBufferDeviceAddress = voxelChunksBufferBaseAddress + chunks[i].stagingBufferOffset;
+        std::for_each(std::execution::par, chunkMetadata.begin(), chunkMetadata.end(), [&](MarchingCubesIndirectPass::ChunkMetadata& metadata) {
+            size_t i = &metadata - chunkMetadata.data();
+            metadata.lowerCornerPos = chunks[i].lowerCornerPos;
+            metadata.upperCornerPos = chunks[i].upperCornerPos;
+            metadata.voxelBufferDeviceAddress = voxelChunksBufferBaseAddress + chunks[i].stagingBufferOffset;
             });
     }
     chunkMetadataBuffer = pEngine->createAndUploadGPUBuffer(numChunks * sizeof(MarchingCubesIndirectPass::ChunkMetadata), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, chunkMetadata.data());

@@ -34,24 +34,23 @@ ChunkedVolumeData::ChunkedVolumeData(VulkanEngine* engine, const std::vector<uin
 	std::memset(pChunksStagingBuffer, 0, stagingBufferSize);
 
 	chunks.resize(numChunksFlat);
-	std::vector<size_t> indices(numChunksFlat);
-	std::iota(indices.begin(), indices.end(), 0);
-	std::for_each(std::execution::par, indices.begin(), indices.end(),[&](size_t idx){
-		size_t z = idx / (numChunks.x * numChunks.y);
-		size_t y = (idx / numChunks.x) % numChunks.y;
-		size_t x = idx % numChunks.x;
+	std::for_each(std::execution::par, chunks.begin(), chunks.end(), [&](VolumeChunk& chunk) {
+			// Compute flat index from pointer difference
+			size_t idx = &chunk - chunks.data();
 
-		VolumeChunk chunk;
-		chunk.chunkIndex = glm::uvec3(x, y, z);
-		extractChunkData(volumeData, idx, chunk);
+			size_t z = idx / (numChunks.x * numChunks.y);
+			size_t y = (idx / numChunks.x) % numChunks.y;
+			size_t x = idx % numChunks.x;
 
-		chunks[idx] = std::move(chunk);
+			chunk.chunkIndex = glm::uvec3(x, y, z);
+			extractChunkData(volumeData, idx, chunk);
 	});
 
 	// Construct the interval tree
 	std::vector<VolumeChunk*> chunkAddresses(numChunksFlat);
-	std::for_each(std::execution::par, indices.begin(), indices.end(),[&](size_t i){
-		chunkAddresses[i] = &chunks[i];
+	std::for_each(std::execution::par, chunkAddresses.begin(), chunkAddresses.end(),[&](VolumeChunk*& chunkPtr){
+		size_t idx = &chunkPtr - chunkAddresses.data(); // compute index
+		chunkPtr = &chunks[idx];
 	});
 
 	intervalTree.build(chunkAddresses);

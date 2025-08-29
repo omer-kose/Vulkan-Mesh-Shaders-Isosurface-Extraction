@@ -171,18 +171,17 @@ VoxelRenderingScene::~VoxelRenderingScene()
     clearBuffers();
 }
 
-std::vector<uint8_t> VoxelRenderingScene::createRandomVoxelData(const glm::uvec3& gridSize)
+void VoxelRenderingScene::fillRandomVoxelData(std::vector<uint8_t>& grid, float fillProbability, int seed)
 {
-    std::srand(std::time({}));
-    size_t numVoxels = gridSize.x * gridSize.y * gridSize.z;
-    std::vector<uint8_t> gridData(numVoxels);
-    std::vector<uint32_t> indices(numVoxels);
-    std::iota(indices.begin(), indices.end(), 0);
-    std::for_each(std::execution::par, indices.begin(), indices.end(), [&](uint32_t i){
-        gridData[i] = std::rand() % 2;
+    size_t numVoxels = grid.size();
 
+    std::mt19937 rng(seed);
+    std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+
+    std::vector<uint8_t> gridData(numVoxels);
+    std::for_each(std::execution::par, grid.begin(), grid.end(), [&](uint8_t& voxelVal){
+        voxelVal = (dist(rng) < fillProbability) ? 1 : 0;
     });
-    return gridData;
 }
 
 void VoxelRenderingScene::loadData(uint32_t modelID)
@@ -200,8 +199,9 @@ void VoxelRenderingScene::loadData(uint32_t modelID)
     }
 
     // TODO: Testing random data
-    gridSize = glm::uvec3(512);
-    gridData = createRandomVoxelData(gridSize);
+    gridSize = glm::uvec3(1024);
+    gridData.resize(gridSize.x * gridSize.y * gridSize.z);
+    fillRandomVoxelData(gridData);
 
     // Create the chunked version of the grid
     chunkedVolumeData = std::make_unique<ChunkedVolumeData>(pEngine, gridData, gridSize, chunkSize, gridLowerCornerPos, gridUpperCornerPos);
@@ -220,12 +220,11 @@ void VoxelRenderingScene::loadData(uint32_t modelID)
     const std::vector<VolumeChunk>& chunks = chunkedVolumeData->getChunks();
     std::vector<VoxelRenderingIndirectPass::ChunkMetadata> chunkMetadata(numChunks);
     {
-        std::vector<size_t> indices(numChunks);
-        std::iota(indices.begin(), indices.end(), 0);
-        std::for_each(std::execution::par, indices.begin(), indices.end(), [&](size_t i) {
-            chunkMetadata[i].lowerCornerPos = chunks[i].lowerCornerPos;
-            chunkMetadata[i].upperCornerPos = chunks[i].upperCornerPos;
-            chunkMetadata[i].voxelBufferDeviceAddress = voxelChunksBufferBaseAddress + chunks[i].stagingBufferOffset;
+        std::for_each(std::execution::par, chunkMetadata.begin(), chunkMetadata.end(), [&](VoxelRenderingIndirectPass::ChunkMetadata& metadata) {
+            size_t i = &metadata - chunkMetadata.data();
+            metadata.lowerCornerPos = chunks[i].lowerCornerPos;
+            metadata.upperCornerPos = chunks[i].upperCornerPos;
+            metadata.voxelBufferDeviceAddress = voxelChunksBufferBaseAddress + chunks[i].stagingBufferOffset;
         });
     }
     chunkMetadataBuffer = pEngine->createAndUploadGPUBuffer(numChunks * sizeof(VoxelRenderingIndirectPass::ChunkMetadata), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, chunkMetadata.data());

@@ -24,7 +24,7 @@ private:
 	void loadData(uint32_t modelID);
 	void clearBuffers();
 
-	std::vector<uint8_t> createRandomVoxelData(const glm::uvec3& gridSize);
+	void fillRandomVoxelData(std::vector<uint8_t>& grid, float fillProbability = 0.3f, int seed = 42);
 private:
 	// Data Loading Params
 	// std::vector<std::string> modelNames; // This is for selecting the organ data from UI. The names are hardcoded. 
