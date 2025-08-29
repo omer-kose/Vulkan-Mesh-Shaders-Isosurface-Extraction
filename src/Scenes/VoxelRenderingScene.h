@@ -44,6 +44,8 @@ private:
 	// Indirect 
 	AllocatedBuffer chunkMetadataBuffer;
 	AllocatedBuffer chunkDrawDataBuffer;
+	uint32_t numActiveChunks; // In Voxel Renderer, all the chunks are always active, at least for now.
+	AllocatedBuffer activeChunkIndicesBuffer;
 	AllocatedBuffer drawChunkCountBuffer;
 private:
 	// Dispatch related constants

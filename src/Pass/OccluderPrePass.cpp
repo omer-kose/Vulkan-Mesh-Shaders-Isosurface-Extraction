@@ -61,7 +61,7 @@ void OccluderPrePass::Init(VulkanEngine* engine)
     vkDestroyShaderModule(engine->device, fragmentShader, nullptr);
 }
 
-void OccluderPrePass::Execute(VulkanEngine* engine, VkCommandBuffer cmd, size_t numChunks)
+void OccluderPrePass::Execute(VulkanEngine* engine, VkCommandBuffer cmd, size_t numActiveChunks)
 {
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, Pipeline);
     // set dynamic state
@@ -72,12 +72,18 @@ void OccluderPrePass::Execute(VulkanEngine* engine, VkCommandBuffer cmd, size_t 
     // bind scene descriptor set
     VkDescriptorSet sceneDescriptorSet = engine->getSceneBufferDescriptorSet();
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, PipelineLayout, 0, 1, &sceneDescriptorSet, 0, nullptr);
-    vkCmdDraw(cmd, 36, numChunks, 0, 0); // 12 triangles for a cube thus 36 vertices
+    vkCmdDraw(cmd, 36, numActiveChunks, 0, 0); // 12 triangles for a cube thus 36 vertices
 }
 
-void OccluderPrePass::SetChunkMetadataBufferAddress(const VkDeviceAddress& chunkMetadataBufferAddress)
+void OccluderPrePass::SetChunkBufferAddresses(const VkDeviceAddress& chunkMetadataBufferAddress, const VkDeviceAddress& activeChunkIndicesBuffer)
 {
     PushConstants.chunkMetadataBufferAddress = chunkMetadataBufferAddress;
+    PushConstants.activeChunkIndicesBuffer = activeChunkIndicesBuffer;
+}
+
+void OccluderPrePass::SetNumActiveChunks(uint32_t numActiveChunks)
+{
+    PushConstants.numActiveChunks = numActiveChunks;
 }
 
 void OccluderPrePass::ClearResources(VulkanEngine* engine)

@@ -19,6 +19,14 @@ layout(buffer_reference, scalar) readonly buffer VoxelBuffer
 };
 
 /*
+	Indices of the chunks that have possibility for extracting surface given the isovalue
+*/
+layout(buffer_reference, scalar) readonly buffer ActiveChunkIndicesBuffer
+{
+	uint activeChunkIndices[];
+};
+
+/*
 	Chunk metadata unique to that chunk. This buffer already exist on the GPU side so I am just reusing it
 */
 struct ChunkMetadata
@@ -37,4 +45,6 @@ layout(buffer_reference, scalar) readonly buffer ChunkMetadataBuffer
 layout(push_constant, scalar) uniform PushConstants
 {
 	ChunkMetadataBuffer chunkMetadataBuffer;
+	ActiveChunkIndicesBuffer activeChunkIndicesBuffer;
+	uint numActiveChunks;
 };

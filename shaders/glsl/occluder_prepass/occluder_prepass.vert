@@ -62,12 +62,13 @@ vec3 hash31(float p)
 void main()
 {
     // Fetch chunk data
-    ChunkMetadata chunkMetadata = chunkMetadataBuffer.chunkMetadata[gl_InstanceIndex];
+    uint chunkID = activeChunkIndicesBuffer.activeChunkIndices[gl_InstanceIndex];
+    ChunkMetadata chunkMetadata = chunkMetadataBuffer.chunkMetadata[chunkID];
     vec3 lower = chunkMetadata.lowerCornerPos;
     vec3 upper = chunkMetadata.upperCornerPos;
 
     vec3 scale = (upper - lower);
     vec3 worldPos = lower + UNIT_CUBE_OFFSETS[gl_VertexIndex] * scale;
     gl_Position = sceneData.viewproj * vec4(worldPos, 1.0f);
-    chunkColor = hash31(float(gl_InstanceIndex));
+    chunkColor = hash31(float(chunkID));
 }
