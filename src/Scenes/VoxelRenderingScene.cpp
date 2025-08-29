@@ -109,14 +109,13 @@ void VoxelRenderingScene::update()
     // Update the MC params (cheap operation but could be checked if there is any change)
     VoxelRenderingIndirectPass::SetCameraZNear(zNear);
     VoxelRenderingIndirectPass::SetCameraPos(mainCamera.position);
-    ChunkVisualizationPass::SetInputIsovalue(0.5f); // Setting this to any value as there is no isovalue in Voxel Rendering
 }
 
 void VoxelRenderingScene::drawFrame(VkCommandBuffer cmd)
 {
     if(showChunks)
     {
-        ChunkVisualizationPass::Execute(pEngine, cmd, chunkedVolumeData->getNumChunksFlat(), 3.0f);
+        ChunkVisualizationPass::Execute(pEngine, cmd, numActiveChunks, 3.0f);
     }
 
     VoxelRenderingIndirectPass::ExecuteGraphicsPass(pEngine, cmd, drawChunkCountBuffer.buffer);
@@ -184,34 +183,6 @@ std::vector<uint8_t> VoxelRenderingScene::createRandomVoxelData(const glm::uvec3
 
     });
     return gridData;
-}
-
-void VoxelRenderingScene::createChunkVisualizationBuffer(const std::vector<VolumeChunk>& chunks)
-{
-    struct ChunkVisInformation
-    {
-        glm::vec3 lowerCornerPos;
-        glm::vec3 upperCornerPos;
-        float minIsoValue;
-        float maxIsoValue;
-    };
-
-    size_t numChunks = chunks.size();
-    size_t stagingBufferSize = numChunks * sizeof(ChunkVisInformation);
-    std::vector<ChunkVisInformation> chunkVisInfo(numChunks);
-    // Fill in the chunk visualization info
-    for(size_t i = 0; i < numChunks; ++i)
-    {
-        const VolumeChunk& chunk = chunks[i];
-        chunkVisInfo[i].lowerCornerPos = chunk.lowerCornerPos;
-        chunkVisInfo[i].upperCornerPos = chunk.upperCornerPos;
-        chunkVisInfo[i].minIsoValue = chunk.minIsoValue;
-        chunkVisInfo[i].maxIsoValue = chunk.maxIsoValue;
-    }
-
-    // Create the Chunk Visualization GPU buffer from the staging buffer
-    chunkVisualizationBuffer = pEngine->createAndUploadGPUBuffer(stagingBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, chunkVisInfo.data());
-    chunkVisualizationBufferAddress = pEngine->getBufferDeviceAddress(chunkVisualizationBuffer.buffer);
 }
 
 void VoxelRenderingScene::loadData(uint32_t modelID)
@@ -282,9 +253,8 @@ void VoxelRenderingScene::loadData(uint32_t modelID)
     OccluderPrePass::SetNumActiveChunks(numActiveChunks);
 
     // Prepare Chunk Visualization
-    createChunkVisualizationBuffer(chunkedVolumeData->getChunks());
-    ChunkVisualizationPass::SetChunkBufferDeviceAddress(chunkVisualizationBufferAddress);
-    ChunkVisualizationPass::SetInputIsovalue(0.5f); // a random value bigger than 0
+    ChunkVisualizationPass::SetChunkBufferAddresses(pEngine->getBufferDeviceAddress(chunkMetadataBuffer.buffer), pEngine->getBufferDeviceAddress(activeChunkIndicesBuffer.buffer));
+    ChunkVisualizationPass::SetNumActiveChunks(numActiveChunks);
 }
 
 void VoxelRenderingScene::clearBuffers()
@@ -294,5 +264,4 @@ void VoxelRenderingScene::clearBuffers()
     pEngine->destroyBuffer(chunkDrawDataBuffer);
     pEngine->destroyBuffer(activeChunkIndicesBuffer);
     pEngine->destroyBuffer(drawChunkCountBuffer);
-    pEngine->destroyBuffer(chunkVisualizationBuffer);
 }

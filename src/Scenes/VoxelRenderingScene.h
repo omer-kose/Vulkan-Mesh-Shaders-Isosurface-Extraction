@@ -25,7 +25,6 @@ private:
 	void clearBuffers();
 
 	std::vector<uint8_t> createRandomVoxelData(const glm::uvec3& gridSize);
-	void createChunkVisualizationBuffer(const std::vector<VolumeChunk>& chunks);
 private:
 	// Data Loading Params
 	// std::vector<std::string> modelNames; // This is for selecting the organ data from UI. The names are hardcoded. 
@@ -38,8 +37,6 @@ private:
 	std::unique_ptr<ChunkedVolumeData> chunkedVolumeData;
 	AllocatedBuffer voxelChunksBuffer; // a pre-determined sized buffer that holds all the chunks
 	VkDeviceAddress voxelChunksBufferBaseAddress;
-	AllocatedBuffer chunkVisualizationBuffer;
-	VkDeviceAddress chunkVisualizationBufferAddress;
 	bool showChunks = false;
 	// Indirect 
 	AllocatedBuffer chunkMetadataBuffer;

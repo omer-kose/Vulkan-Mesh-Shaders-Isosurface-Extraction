@@ -9,14 +9,15 @@ class ChunkVisualizationPass
 public:
 	struct ChunkVisPushConstants
 	{
-		VkDeviceAddress chunkBufferDeviceAddress;
-		float inputIsoValue;
+		VkDeviceAddress chunkMetadataBufferAddress;
+		VkDeviceAddress activeChunkIndicesBuffer;
+		uint32_t numActiveChunks;
 	};
 public:
 	static void Init(VulkanEngine* engine);
 	static void Execute(VulkanEngine* engine, VkCommandBuffer cmd, size_t numChunks, float lineWidth = 1.0f);
-	static void SetChunkBufferDeviceAddress(const VkDeviceAddress& chunkBufferDeviceAddress);
-	static void SetInputIsovalue(float isoValue);
+	static void SetChunkBufferAddresses(const VkDeviceAddress& chunkMetadataBufferAddress, const VkDeviceAddress& activeChunkIndicesBuffer);
+	static void SetNumActiveChunks(uint32_t numActiveChunks);
 	static void ClearResources(VulkanEngine* engine);
 private:
 	static VkPipeline Pipeline;

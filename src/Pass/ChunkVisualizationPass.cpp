@@ -76,14 +76,15 @@ void ChunkVisualizationPass::Execute(VulkanEngine* engine, VkCommandBuffer cmd, 
     vkCmdDraw(cmd, 24, numChunks, 0, 0); // 12 edges for a cube thus 24 vertices
 }
 
-void ChunkVisualizationPass::SetChunkBufferDeviceAddress(const VkDeviceAddress& chunkBufferDeviceAddress)
+void ChunkVisualizationPass::SetChunkBufferAddresses(const VkDeviceAddress& chunkMetadataBufferAddress, const VkDeviceAddress& activeChunkIndicesBuffer)
 {
-	PushConstants.chunkBufferDeviceAddress = chunkBufferDeviceAddress;
+    PushConstants.chunkMetadataBufferAddress = chunkMetadataBufferAddress;
+    PushConstants.activeChunkIndicesBuffer = activeChunkIndicesBuffer;
 }
 
-void ChunkVisualizationPass::SetInputIsovalue(float isoValue)
+void ChunkVisualizationPass::SetNumActiveChunks(uint32_t numActiveChunks)
 {
-	PushConstants.inputIsoValue = isoValue;
+	PushConstants.numActiveChunks = numActiveChunks;
 }
 
 void ChunkVisualizationPass::ClearResources(VulkanEngine* engine)
