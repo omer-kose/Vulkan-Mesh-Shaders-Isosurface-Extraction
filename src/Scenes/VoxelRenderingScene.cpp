@@ -23,8 +23,8 @@ void VoxelRenderingScene::load(VulkanEngine* engine)
     chunkSize = glm::uvec3(32, 32, 32);
     blockSize = 4;
     blocksPerChunk = (chunkSize.x * chunkSize.y * chunkSize.z) / (blockSize * blockSize * blockSize);
-    gridLowerCornerPos = glm::vec3(-0.5f);
-    gridUpperCornerPos = glm::vec3(0.5f);
+    gridLowerCornerPos = glm::vec3(-1.0f);
+    gridUpperCornerPos = glm::vec3(1.0f);
 
     // organNames = { "CThead", "Kidney" };
 
@@ -124,17 +124,17 @@ void VoxelRenderingScene::drawFrame(VkCommandBuffer cmd)
 
 void VoxelRenderingScene::performPreRenderPassOps(VkCommandBuffer cmd)
 {
-    // First draw the occluders 
-     // Begin a renderpass. Draw Image is not important as this prepass is done for the depth image
-    VkRenderingAttachmentInfo colorAttachment = vkinit::attachment_info(pEngine->drawImage.imageView, &pEngine->colorAttachmentClearValue, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    VkRenderingAttachmentInfo depthAttachment = vkinit::depth_attachment_info(pEngine->depthImage.imageView, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
+    //// First draw the occluders 
+    // // Begin a renderpass. Draw Image is not important as this prepass is done for the depth image
+    //VkRenderingAttachmentInfo colorAttachment = vkinit::attachment_info(pEngine->drawImage.imageView, &pEngine->colorAttachmentClearValue, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    //VkRenderingAttachmentInfo depthAttachment = vkinit::depth_attachment_info(pEngine->depthImage.imageView, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
 
-    VkRenderingInfo renderInfo = vkinit::rendering_info(pEngine->drawExtent, &colorAttachment, &depthAttachment);
-    vkCmdBeginRendering(cmd, &renderInfo);
-    OccluderPrePass::Execute(pEngine, cmd, numActiveChunks);
-    vkCmdEndRendering(cmd);
-    // Then, build the current frame's HZB image with occluders. Synchronization is done inside HZBDownSamplePass
-    HZBDownSamplePass::Execute(pEngine, cmd);
+    //VkRenderingInfo renderInfo = vkinit::rendering_info(pEngine->drawExtent, &colorAttachment, &depthAttachment);
+    //vkCmdBeginRendering(cmd, &renderInfo);
+    //OccluderPrePass::Execute(pEngine, cmd, numActiveChunks);
+    //vkCmdEndRendering(cmd);
+    //// Then, build the current frame's HZB image with occluders. Synchronization is done inside HZBDownSamplePass
+    //HZBDownSamplePass::Execute(pEngine, cmd);
     
     // Clear draw count back to 0 
     vkCmdFillBuffer(cmd, drawChunkCountBuffer.buffer, 0, 4, 0);
@@ -163,7 +163,7 @@ void VoxelRenderingScene::performPreRenderPassOps(VkCommandBuffer cmd)
 
 void VoxelRenderingScene::performPostRenderPassOps(VkCommandBuffer cmd)
 {
-    // HZBDownSamplePass::Execute(pEngine, cmd);
+    HZBDownSamplePass::Execute(pEngine, cmd);
 }
 
 VoxelRenderingScene::~VoxelRenderingScene()
@@ -184,6 +184,52 @@ void VoxelRenderingScene::fillRandomVoxelData(std::vector<uint8_t>& grid, float 
     });
 }
 
+float hash3D(int x, int y, int z)
+{
+    int h = x * 374761393 + y * 668265263 + z * 73856093;
+    h = (h ^ (h >> 13)) * 1274126177;
+    return ((h & 0x7fffffff) / float(0x7fffffff));
+}
+
+float noise3D(float x, float y, float z, float scale = 0.05f)
+{
+    int xi = int(std::floor(x * scale));
+    int yi = int(std::floor(y * scale));
+    int zi = int(std::floor(z * scale));
+    return hash3D(xi, yi, zi);
+}
+
+void VoxelRenderingScene::generateVoxelScene(std::vector<uint8_t>& grid, int sizeX, int sizeY, int sizeZ)
+{
+    size_t numVoxels = sizeX * sizeY * sizeZ;
+    grid.resize(numVoxels);
+
+    std::for_each(std::execution::par, grid.begin(), grid.end(),
+        [&](uint8_t& voxel) {
+            size_t idx = &voxel - &grid[0];
+
+            int x = idx % sizeX;
+            int y = (idx / sizeX) % sizeY;
+            int z = idx / (sizeX * sizeY);
+
+            // Floor and ceiling
+            if(z == 0 || z == sizeZ - 1) { voxel = 1; return; }
+
+            // Pillars
+            if((x % 16 == 0) && (y % 16 == 0)) { voxel = 1; return; }
+
+            // Central sphere
+            float cx = sizeX / 2.0f;
+            float cy = sizeY / 2.0f;
+            float cz = sizeZ / 2.0f;
+            float dist = std::sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy) + (z - cz) * (z - cz));
+            if(dist < sizeX / 8.0f) { voxel = 1; return; }
+
+            // Noise clumps
+            voxel = (noise3D(float(x), float(y), float(z)) > 0.7f) ? 1 : 0;
+        });
+}
+
 void VoxelRenderingScene::loadData(uint32_t modelID)
 {
     // Make sure that Vulkan is done working with the buffer (not the best way but in this case this scene does not do anything else other than rendering a geometry)
@@ -199,9 +245,10 @@ void VoxelRenderingScene::loadData(uint32_t modelID)
     }
 
     // TODO: Testing random data
-    gridSize = glm::uvec3(1024);
-    gridData.resize(gridSize.x * gridSize.y * gridSize.z);
-    fillRandomVoxelData(gridData);
+    gridSize = glm::uvec3(256);
+    generateVoxelScene(gridData, gridSize.x, gridSize.y, gridSize.z);
+    // gridData.resize(gridSize.x * gridSize.y * gridSize.z);
+    // fillRandomVoxelData(gridData);
 
     // Create the chunked version of the grid
     chunkedVolumeData = std::make_unique<ChunkedVolumeData>(pEngine, gridData, gridSize, chunkSize, gridLowerCornerPos, gridUpperCornerPos);
