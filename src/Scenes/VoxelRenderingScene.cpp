@@ -233,7 +233,7 @@ void VoxelRenderingScene::loadData(uint32_t modelID)
     gridData = createRandomVoxelData(gridSize);
 
     // Create the chunked version of the grid
-    chunkedVolumeData = std::make_unique<ChunkedVolumeData<uint8_t>>(pEngine, gridData, gridSize, chunkSize, gridLowerCornerPos, gridUpperCornerPos, false);
+    chunkedVolumeData = std::make_unique<ChunkedVolumeData>(pEngine, gridData, gridSize, chunkSize, gridLowerCornerPos, gridUpperCornerPos);
     gridData.clear();
 
     // Allocate the chunk buffer on GPU and load the whole data at the beginning only once
@@ -243,7 +243,7 @@ void VoxelRenderingScene::loadData(uint32_t modelID)
     voxelChunksBufferBaseAddress = pEngine->getBufferDeviceAddress(voxelChunksBuffer.buffer);
 
     // Once the data is loaded staging buffer is no longer needed
-    chunkedVolumeData->destroyStagingBuffer();
+    chunkedVolumeData->destroyStagingBuffer(pEngine);
 
     // Allocate Indirect Buffers
     const std::vector<VolumeChunk>& chunks = chunkedVolumeData->getChunks();

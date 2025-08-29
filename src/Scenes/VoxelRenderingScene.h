@@ -35,7 +35,7 @@ private:
 	glm::uvec3 shellSize;
 	glm::vec3 gridLowerCornerPos; // in world space
 	glm::vec3 gridUpperCornerPos; // in world space
-	std::unique_ptr<ChunkedVolumeData<uint8_t>> chunkedVolumeData;
+	std::unique_ptr<ChunkedVolumeData> chunkedVolumeData;
 	AllocatedBuffer voxelChunksBuffer; // a pre-determined sized buffer that holds all the chunks
 	VkDeviceAddress voxelChunksBufferBaseAddress;
 	AllocatedBuffer chunkVisualizationBuffer;

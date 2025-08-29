@@ -278,7 +278,7 @@ void OrganVisualizationChunksScene::loadData(uint32_t organID)
     }
 
     // Create the chunked version of the grid
-    chunkedVolumeData = std::make_unique<ChunkedVolumeData<uint8_t>>(pEngine, gridData, gridSize, chunkSize, glm::vec3(-0.5f), glm::vec3(0.5f));
+    chunkedVolumeData = std::make_unique<ChunkedVolumeData>(pEngine, gridData, gridSize, chunkSize, glm::vec3(-0.5f), glm::vec3(0.5f));
     gridData.clear();
 
     // Allocate the chunk buffer on GPU and load the whole data at the beginning only once
@@ -288,7 +288,7 @@ void OrganVisualizationChunksScene::loadData(uint32_t organID)
     voxelChunksBufferBaseAddress = pEngine->getBufferDeviceAddress(voxelChunksBuffer.buffer);
    
     // Once the data is loaded staging buffer is no longer needed
-    chunkedVolumeData->destroyStagingBuffer();
+    chunkedVolumeData->destroyStagingBuffer(pEngine);
 
     gridSize = chunkSize;
     shellSize = chunkedVolumeData->getShellSize();

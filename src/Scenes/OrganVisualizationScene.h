@@ -36,7 +36,7 @@ private:
 	glm::uvec3 shellSize;
 	float prevFrameIsovalue; // To keep track of change in isovalue to trigger active chunk indices update 
 	float isovalue;
-	std::unique_ptr<ChunkedVolumeData<uint8_t>> chunkedVolumeData;
+	std::unique_ptr<ChunkedVolumeData> chunkedVolumeData;
 	glm::uvec3 chunkSize;
 	AllocatedBuffer voxelChunksBuffer; // a pre-determined sized buffer that holds all the chunks
 	VkDeviceAddress voxelChunksBufferBaseAddress;
