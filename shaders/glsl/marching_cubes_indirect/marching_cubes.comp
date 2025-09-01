@@ -104,7 +104,7 @@ void main()
     if (gtid >= totalTasks) return;
 
     uint chunkRank = gtid / blocksPerChunk;
-    uint blockRank = gtid - chunkRank * blocksPerChunk;
+    uint localBlockID = gtid - chunkRank * blocksPerChunk; // gtid % blocksPerChunk
 
     uint chunkID = activeChunkIndicesBuffer.activeChunkIndices[chunkRank];
     ChunkMetadata metadata = chunkMetadataBuffer.chunkMetadata[chunkID];
@@ -116,7 +116,7 @@ void main()
     }
 
     // This thread's block coordinates in the chunk
-    uvec3 b = decodeBlock(blockRank, groupsPerChunk);
+    uvec3 b = decodeBlock(localBlockID, groupsPerChunk);
 
     // Block AABB
     vec3 blockStep = ((metadata.upperCornerPos - metadata.lowerCornerPos) / vec3(mcSettings.gridSize)) * float(BLOCK_SIZE);
@@ -152,6 +152,6 @@ void main()
     {
         uint outIndex = base + prefix;
         chunkDrawDataBuffer.chunkDrawData[outIndex].chunkID = chunkID;
-        chunkDrawDataBuffer.chunkDrawData[outIndex].localWorkgroupID = b.x + groupsPerChunk.x * (b.y + groupsPerChunk.y * b.z);
+        chunkDrawDataBuffer.chunkDrawData[outIndex].localWorkgroupID = localBlockID;
     }
 }

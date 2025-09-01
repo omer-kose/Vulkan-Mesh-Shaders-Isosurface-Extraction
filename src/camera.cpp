@@ -95,7 +95,7 @@ void Camera::processSDLEvent(SDL_Event& e)
     }
 }
 
-void Camera::update()
+void Camera::update(float dt)
 {
     // Calculate net velocity based on all active keys
     glm::vec3 netVelocity(0.0f);
@@ -118,7 +118,7 @@ void Camera::update()
     if(netSpeed > 0.0001f) // if there is a movement
     {
         // Apply movement relative to camera orientation
-        position += glm::vec3(glm::toMat4(orientation) * glm::vec4(netVelocity, 0.0f));
+        position += glm::vec3(glm::toMat4(orientation) * glm::vec4(netVelocity, 0.0f)) * dt;
     }
 }
 

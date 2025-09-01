@@ -55,6 +55,7 @@ struct FrameData
 struct EngineStats
 {
 	float frameTime;
+	float dt;
 	int triangleCount;
 	int drawCallCount;
 	float sceneUpdateTime;
@@ -111,7 +112,7 @@ public:
 	void drawImgui(VkCommandBuffer cmd, VkImageView targetImageView); 
 
 	// Updates
-	void updateScene();
+	void updateScene(float dt);
 
 	//run main loop
 	void run();

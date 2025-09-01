@@ -33,7 +33,7 @@ void VoxelRenderingScene::load(VulkanEngine* engine)
 
     // Set the camera
     mainCamera = Camera(glm::vec3(-2.0f, 0.0f, 2.0f), 0.0f, -45.0f);
-    mainCamera.setSpeed(0.02f);
+    mainCamera.setSpeed(2.0f);
 
     // Set attachment clear color
     pEngine->setColorAttachmentClearColor(VkClearValue{ 0.6f, 0.9f, 1.0f, 1.0f });
@@ -78,9 +78,9 @@ void VoxelRenderingScene::handleUI()
     ImGui::End();
 }
 
-void VoxelRenderingScene::update()
+void VoxelRenderingScene::update(float dt)
 {
-    mainCamera.update();
+    mainCamera.update(dt);
 
     sceneData.view = mainCamera.getViewMatrix();
     constexpr float fov = glm::radians(45.0f);
