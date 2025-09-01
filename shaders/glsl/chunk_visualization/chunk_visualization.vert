@@ -22,16 +22,13 @@ const vec3 UNIT_CUBE_EDGES[24] = vec3[](
     vec3(0, 1, 0), vec3(0, 1, 1)  // Edge 11
 );
 
-layout(location = 0) flat out vec2 chunkIsoValueRange;
-
 void main()
 {
     // Fetch chunk data
-    ChunkVisInformation chunkInfo = pushConstants.chunkBuffer.chunks[gl_InstanceIndex];
-    vec3 lower = chunkInfo.lowerCornerPos;
-    vec3 upper = chunkInfo.upperCornerPos;
-    chunkIsoValueRange.x = chunkInfo.minIsoValue;
-    chunkIsoValueRange.y = chunkInfo.maxIsoValue;
+    uint chunkID = activeChunkIndicesBuffer.activeChunkIndices[gl_InstanceIndex];
+    ChunkMetadata chunkMetadata = chunkMetadataBuffer.chunkMetadata[chunkID];
+    vec3 lower = chunkMetadata.lowerCornerPos;
+    vec3 upper = chunkMetadata.upperCornerPos;
 
     vec3 scale = upper - lower;
     vec3 worldPos = lower + UNIT_CUBE_EDGES[gl_VertexIndex] * scale;

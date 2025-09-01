@@ -5,6 +5,7 @@
 #include <Pass/VoxelRenderingIndirectPass.h>
 #include <Pass/ChunkVisualizationPass.h>
 #include <Pass/HZBDownSamplePass.h>
+#include <Pass/OccluderPrePass.h>
 
 #include <Data/ChunkedVolumeData.h>
 
@@ -23,8 +24,8 @@ private:
 	void loadData(uint32_t modelID);
 	void clearBuffers();
 
-	std::vector<uint8_t> createRandomVoxelData(const glm::uvec3& gridSize);
-	void createChunkVisualizationBuffer(const std::vector<VolumeChunk>& chunks);
+	void fillRandomVoxelData(std::vector<uint8_t>& grid, float fillProbability = 0.3f, int seed = 42);
+	void generateVoxelScene(std::vector<uint8_t>& grid, int sizeX, int sizeY, int sizeZ);
 private:
 	// Data Loading Params
 	// std::vector<std::string> modelNames; // This is for selecting the organ data from UI. The names are hardcoded. 
@@ -34,15 +35,15 @@ private:
 	glm::uvec3 shellSize;
 	glm::vec3 gridLowerCornerPos; // in world space
 	glm::vec3 gridUpperCornerPos; // in world space
-	std::unique_ptr<ChunkedVolumeData<uint8_t>> chunkedVolumeData;
+	std::unique_ptr<ChunkedVolumeData> chunkedVolumeData;
 	AllocatedBuffer voxelChunksBuffer; // a pre-determined sized buffer that holds all the chunks
 	VkDeviceAddress voxelChunksBufferBaseAddress;
-	AllocatedBuffer chunkVisualizationBuffer;
-	VkDeviceAddress chunkVisualizationBufferAddress;
 	bool showChunks = false;
 	// Indirect 
 	AllocatedBuffer chunkMetadataBuffer;
 	AllocatedBuffer chunkDrawDataBuffer;
+	uint32_t numActiveChunks; // In Voxel Renderer, all the chunks are always active, at least for now.
+	AllocatedBuffer activeChunkIndicesBuffer;
 	AllocatedBuffer drawChunkCountBuffer;
 private:
 	// Dispatch related constants
