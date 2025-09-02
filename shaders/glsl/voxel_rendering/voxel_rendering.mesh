@@ -103,7 +103,7 @@ void main()
 	bool keep = false; // Only 6 threads will modify this on their stack
 	if(threadID < 6)
 	{
-		vec3 voxelToCamera = cameraPos - voxelCenter;
+		vec3 voxelToCamera = sceneData.cameraPos - voxelCenter;
 		bool cameraSide = false;
 		switch(threadID)
 		{

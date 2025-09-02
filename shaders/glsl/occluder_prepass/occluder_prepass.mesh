@@ -95,7 +95,7 @@ void main()
 	bool keep = false; // Only 6 threads will modify this on their stack
 	if(threadID < 6)
 	{
-		vec3 blockToCamera = cameraPos - blockCenter;
+		vec3 blockToCamera = sceneData.cameraPos - blockCenter;
 		bool cameraSide = false;
 		switch(threadID)
 		{

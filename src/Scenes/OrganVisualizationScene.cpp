@@ -92,6 +92,7 @@ void OrganVisualizationChunksScene::update(float dt)
 {
     mainCamera.update(dt);
 
+    sceneData.cameraPos = mainCamera.position;
     sceneData.view = mainCamera.getViewMatrix();
     constexpr float fov = glm::radians(45.0f);
     constexpr float zNear = 0.1f;
@@ -127,8 +128,6 @@ void OrganVisualizationChunksScene::update(float dt)
 
     MarchingCubesIndirectPass::SetInputIsovalue(isovalue);
     MarchingCubesIndirectPass::SetCameraZNear(zNear);
-
-    OccluderPrePass::SetCameraPos(mainCamera.position);
 }
 
 void OrganVisualizationChunksScene::drawFrame(VkCommandBuffer cmd)

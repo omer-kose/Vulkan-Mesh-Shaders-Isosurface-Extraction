@@ -82,6 +82,7 @@ void VoxelRenderingScene::update(float dt)
 {
     mainCamera.update(dt);
 
+    sceneData.cameraPos = mainCamera.position;
     sceneData.view = mainCamera.getViewMatrix();
     constexpr float fov = glm::radians(45.0f);
     constexpr float zNear = 0.1f;
@@ -108,7 +109,6 @@ void VoxelRenderingScene::update(float dt)
 
     // Update the MC params (cheap operation but could be checked if there is any change)
     VoxelRenderingIndirectPass::SetCameraZNear(zNear);
-    VoxelRenderingIndirectPass::SetCameraPos(mainCamera.position);
 }
 
 void VoxelRenderingScene::drawFrame(VkCommandBuffer cmd)

@@ -50,5 +50,4 @@ layout(push_constant, scalar) uniform PushConstants
 	ChunkMetadataBuffer chunkMetadataBuffer;
 	ChunkDrawDataBuffer chunkDrawDataBuffer;
 	uvec3 chunkSize;
-	vec3 cameraPos; // TODO: Move this to sceneData
 };

@@ -87,11 +87,6 @@ void OccluderPrePass::SetChunkSize(const glm::uvec3& chunkSize)
     PushConstants.chunkSize = chunkSize;
 }
 
-void OccluderPrePass::SetCameraPos(const glm::vec3& cameraPos)
-{
-    PushConstants.cameraPos = cameraPos;
-}
-
 void OccluderPrePass::ClearResources(VulkanEngine* engine)
 {
 	vkDestroyPipelineLayout(engine->device, PipelineLayout, nullptr);

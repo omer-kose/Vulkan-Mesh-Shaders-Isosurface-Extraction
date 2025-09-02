@@ -174,11 +174,6 @@ void VoxelRenderingIndirectPass::SetCameraZNear(float zNear)
     PushConstants.zNear = zNear;
 }
 
-void VoxelRenderingIndirectPass::SetCameraPos(const glm::vec3& cameraPos)
-{
-    PushConstants.cameraPos = cameraPos;
-}
-
 void VoxelRenderingIndirectPass::SetDepthPyramidSizes(uint32_t depthPyramidWidth, uint32_t depthPyramidHeight)
 {
     PushConstants.depthPyramidWidth = depthPyramidWidth;

@@ -68,7 +68,6 @@ layout(push_constant, scalar) uniform PushConstants
 	uvec3 shellSize; // For chunks a shell with +2 on right-bottom-front boundaries for correct computation. For voxel rendering, only +1 is enough to check neighbor occupation but I use the same chuking strategy for both MC and Voxel rendering
 	vec3 voxelSize; // Size of a singular voxel. All the voxels are uniformly shaped
 	uint numChunks;
-	vec3 cameraPos; // TODO: Move this to sceneData
 	float zNear;
 	uint depthPyramidWidth;
 	uint depthPyramidHeight;
