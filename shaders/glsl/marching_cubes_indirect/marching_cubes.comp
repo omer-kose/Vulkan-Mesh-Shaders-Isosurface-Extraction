@@ -16,7 +16,8 @@ bool occlusionTest(vec3 lowerCornerPos, vec3 upperCornerPos)
 	float radius = length(upperCornerPos - lowerCornerPos) / 2.0f; 
 	vec4 aabb;
 	bool visible = false;
-	if (projectBox(lowerCornerPos, upperCornerPos, zNear, sceneData.viewproj, aabb))
+    float currentDepth;
+	if (projectBox(lowerCornerPos, upperCornerPos, zNear, sceneData.viewproj, aabb, currentDepth))
 	{
 		float width = (aabb.z - aabb.x) * depthPyramidWidth;
 		float height = (aabb.w - aabb.y) * depthPyramidHeight;
@@ -25,7 +26,7 @@ bool occlusionTest(vec3 lowerCornerPos, vec3 upperCornerPos)
 
 		// Sampler is set up to do min reduction, so this computes the minimum depth of a 2x2 texel quad
 		float sampledDepth = textureLod(depthPyramid, (aabb.xy + aabb.zw) * 0.5, level).x;
-		float currentDepth = zNear / (-center.z - radius);
+		// float currentDepth = zNear / (-center.z - radius);
 		visible = currentDepth > sampledDepth;
 	}
 

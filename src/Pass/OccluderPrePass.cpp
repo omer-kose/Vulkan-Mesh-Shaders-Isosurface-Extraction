@@ -13,10 +13,10 @@ void OccluderPrePass::Init(VulkanEngine* engine)
 {
     // Init the pipeline
     // Load the shaders
-    VkShaderModule vertexShader;
-    if(!vkutil::loadShaderModule(engine->device, "../../shaders/glsl/occluder_prepass/occluder_prepass_vert.spv", &vertexShader))
+    VkShaderModule meshShader;
+    if(!vkutil::loadShaderModule(engine->device, "../../shaders/glsl/occluder_prepass/occluder_prepass_mesh.spv", &meshShader))
     {
-        fmt::println("Error when building occluder prepass vertex shader");
+        fmt::println("Error when building occluder prepass mesh shader");
     }
 
     VkShaderModule fragmentShader;
@@ -26,7 +26,7 @@ void OccluderPrePass::Init(VulkanEngine* engine)
     }
 
     // Push Constant (MC Settings are dynamic and updated via UpdateMCSettings function if needed (needs to be updated at least once of course))
-    VkPushConstantRange pcRange{ .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, .offset = 0, .size = sizeof(OccluderPushConstants) };
+    VkPushConstantRange pcRange{ .stageFlags = VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_FRAGMENT_BIT, .offset = 0, .size = sizeof(OccluderPushConstants) };
 
     // Set descriptor sets (only scene descriptor set is used for camera info)
     VkDescriptorSetLayout layouts[] = { engine->getSceneDescriptorLayout() };
@@ -41,7 +41,8 @@ void OccluderPrePass::Init(VulkanEngine* engine)
 
     // Build the pipeline
     PipelineBuilder pipelineBuilder;
-    pipelineBuilder.setShaders(vertexShader, fragmentShader);
+    pipelineBuilder.pushShaderStage(meshShader, VK_SHADER_STAGE_MESH_BIT_EXT);
+    pipelineBuilder.pushShaderStage(fragmentShader, VK_SHADER_STAGE_FRAGMENT_BIT);
     pipelineBuilder.setInputTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
     pipelineBuilder.setPolygonMode(VK_POLYGON_MODE_FILL);
     pipelineBuilder.setCullMode(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE);
@@ -57,33 +58,38 @@ void OccluderPrePass::Init(VulkanEngine* engine)
     Pipeline = pipelineBuilder.buildPipeline(engine->device);
 
     // ShaderModules are not needed anymore
-    vkDestroyShaderModule(engine->device, vertexShader, nullptr);
+    vkDestroyShaderModule(engine->device, meshShader, nullptr);
     vkDestroyShaderModule(engine->device, fragmentShader, nullptr);
 }
 
-void OccluderPrePass::Execute(VulkanEngine* engine, VkCommandBuffer cmd, size_t numActiveChunks)
+void OccluderPrePass::Execute(VulkanEngine* engine, VkCommandBuffer cmd, VkBuffer indirectCommandBuffer)
 {
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, Pipeline);
     // set dynamic state
     engine->setViewport(cmd);
     engine->setScissor(cmd);
     // push constants
-    vkCmdPushConstants(cmd, PipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(OccluderPushConstants), &PushConstants);
+    vkCmdPushConstants(cmd, PipelineLayout, VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(OccluderPushConstants), &PushConstants);
     // bind scene descriptor set
     VkDescriptorSet sceneDescriptorSet = engine->getSceneBufferDescriptorSet();
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, PipelineLayout, 0, 1, &sceneDescriptorSet, 0, nullptr);
-    vkCmdDraw(cmd, 36, numActiveChunks, 0, 0); // 12 triangles for a cube thus 36 vertices
+    vkCmdDrawMeshTasksIndirectEXT(cmd, indirectCommandBuffer, 0, 1, 0);
 }
 
-void OccluderPrePass::SetChunkBufferAddresses(const VkDeviceAddress& chunkMetadataBufferAddress, const VkDeviceAddress& activeChunkIndicesBuffer)
+void OccluderPrePass::SetChunkBufferAddresses(const VkDeviceAddress& chunkMetadataBufferAddress, const VkDeviceAddress& chunkDrawDataBufferAddress)
 {
     PushConstants.chunkMetadataBufferAddress = chunkMetadataBufferAddress;
-    PushConstants.activeChunkIndicesBuffer = activeChunkIndicesBuffer;
+    PushConstants.chunkDrawDataBufferAddress = chunkDrawDataBufferAddress;
 }
 
-void OccluderPrePass::SetNumActiveChunks(uint32_t numActiveChunks)
+void OccluderPrePass::SetChunkSize(const glm::uvec3& chunkSize)
 {
-    PushConstants.numActiveChunks = numActiveChunks;
+    PushConstants.chunkSize = chunkSize;
+}
+
+void OccluderPrePass::SetCameraPos(const glm::vec3& cameraPos)
+{
+    PushConstants.cameraPos = cameraPos;
 }
 
 void OccluderPrePass::ClearResources(VulkanEngine* engine)

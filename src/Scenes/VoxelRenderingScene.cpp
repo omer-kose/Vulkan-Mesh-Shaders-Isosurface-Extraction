@@ -84,7 +84,7 @@ void VoxelRenderingScene::update(float dt)
 
     sceneData.view = mainCamera.getViewMatrix();
     constexpr float fov = glm::radians(45.0f);
-    constexpr float zNear = 0.01f;
+    constexpr float zNear = 0.1f;
     constexpr float zFar = 10000.f;
 
     VkExtent2D windowExtent = pEngine->getWindowExtent();
@@ -296,7 +296,6 @@ void VoxelRenderingScene::loadData(uint32_t modelID)
 
     // Occluder Prepass params
     OccluderPrePass::SetChunkBufferAddresses(pEngine->getBufferDeviceAddress(chunkMetadataBuffer.buffer), pEngine->getBufferDeviceAddress(activeChunkIndicesBuffer.buffer));
-    OccluderPrePass::SetNumActiveChunks(numActiveChunks);
 
     // Prepare Chunk Visualization
     ChunkVisualizationPass::SetChunkBufferAddresses(pEngine->getBufferDeviceAddress(chunkMetadataBuffer.buffer), pEngine->getBufferDeviceAddress(activeChunkIndicesBuffer.buffer));

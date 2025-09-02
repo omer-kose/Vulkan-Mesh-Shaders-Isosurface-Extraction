@@ -94,7 +94,7 @@ void OrganVisualizationChunksScene::update(float dt)
 
     sceneData.view = mainCamera.getViewMatrix();
     constexpr float fov = glm::radians(45.0f);
-    constexpr float zNear = 0.01f;
+    constexpr float zNear = 0.1f;
     constexpr float zFar = 10000.f;
 
     VkExtent2D windowExtent = pEngine->getWindowExtent();
@@ -127,6 +127,8 @@ void OrganVisualizationChunksScene::update(float dt)
 
     MarchingCubesIndirectPass::SetInputIsovalue(isovalue);
     MarchingCubesIndirectPass::SetCameraZNear(zNear);
+
+    OccluderPrePass::SetCameraPos(mainCamera.position);
 }
 
 void OrganVisualizationChunksScene::drawFrame(VkCommandBuffer cmd)
@@ -166,7 +168,6 @@ void OrganVisualizationChunksScene::performPreRenderPassOps(VkCommandBuffer cmd)
         std::vector<VolumeChunk*> renderChunks = chunkedVolumeData->query(isovalue);
         numActiveChunks = renderChunks.size();
         MarchingCubesIndirectPass::SetNumActiveChunks(numActiveChunks);
-        OccluderPrePass::SetNumActiveChunks(numActiveChunks);
         ChunkVisualizationPass::SetNumActiveChunks(numActiveChunks);
         uint32_t* pStagingBuffer = (uint32_t*)pEngine->getMappedStagingBufferData(activeChunkIndicesStagingBuffer);
         // TODO: Parallelize this
@@ -192,17 +193,26 @@ void OrganVisualizationChunksScene::performPreRenderPassOps(VkCommandBuffer cmd)
         prevFrameIsovalue = isovalue;
     }
 
-    //// First draw the occluders 
-    //// Begin a renderpass. Draw Image is not important as this prepass is done for the depth image
-    //VkRenderingAttachmentInfo colorAttachment = vkinit::attachment_info(pEngine->drawImage.imageView, &pEngine->colorAttachmentClearValue, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    //VkRenderingAttachmentInfo depthAttachment = vkinit::depth_attachment_info(pEngine->depthImage.imageView, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
+    //if(!firstFrame)
+    //{
+    //    // Using the draw list from the previous frame, draw occluders from the current camera angle to refresh the depth buffer.
 
-    //VkRenderingInfo renderInfo = vkinit::rendering_info(pEngine->drawExtent, &colorAttachment, &depthAttachment);
-    //vkCmdBeginRendering(cmd, &renderInfo);
-    //OccluderPrePass::Execute(pEngine, cmd, numActiveChunks);
-    //vkCmdEndRendering(cmd);
-    //// Then, build the current frame's HZB image with occluders. Synchronization is done inside HZBDownSamplePass
-    //HZBDownSamplePass::Execute(pEngine, cmd);
+    //    // First draw the occluders 
+    //    // Begin a renderpass. Draw Image is not important as this prepass is done for the depth image
+    //    VkRenderingAttachmentInfo colorAttachment = vkinit::attachment_info(pEngine->drawImage.imageView, &pEngine->colorAttachmentClearValue, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    //    VkRenderingAttachmentInfo depthAttachment = vkinit::depth_attachment_info(pEngine->depthImage.imageView, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
+
+    //    VkRenderingInfo renderInfo = vkinit::rendering_info(pEngine->drawExtent, &colorAttachment, &depthAttachment);
+    //    vkCmdBeginRendering(cmd, &renderInfo);
+    //    OccluderPrePass::Execute(pEngine, cmd, drawChunkCountBuffer.buffer);
+    //    vkCmdEndRendering(cmd);
+    //    // Then, build the current frame's HZB image with occluders. Synchronization is done inside HZBDownSamplePass
+    //    HZBDownSamplePass::Execute(pEngine, cmd);
+    //}
+    //else
+    //{
+    //    firstFrame = false;
+    //}
 
     if(indirect)
     {
@@ -308,11 +318,15 @@ void OrganVisualizationChunksScene::loadData(uint32_t organID)
     MarchingCubesIndirectPass::SetChunkBufferAddresses(pEngine->getBufferDeviceAddress(chunkMetadataBuffer.buffer), pEngine->getBufferDeviceAddress(chunkDrawDataBuffer.buffer), pEngine->getBufferDeviceAddress(activeChunkIndicesBuffer.buffer), pEngine->getBufferDeviceAddress(drawChunkCountBuffer.buffer));
 
     // Occluder Prepass params
-    OccluderPrePass::SetChunkBufferAddresses(pEngine->getBufferDeviceAddress(chunkMetadataBuffer.buffer), pEngine->getBufferDeviceAddress(activeChunkIndicesBuffer.buffer));
+    OccluderPrePass::SetChunkBufferAddresses(pEngine->getBufferDeviceAddress(chunkMetadataBuffer.buffer), pEngine->getBufferDeviceAddress(chunkDrawDataBuffer.buffer));
+    OccluderPrePass::SetChunkSize(chunkSize);
 
     // Prepare Chunk Visualization
     ChunkVisualizationPass::SetChunkBufferAddresses(pEngine->getBufferDeviceAddress(chunkMetadataBuffer.buffer), pEngine->getBufferDeviceAddress(activeChunkIndicesBuffer.buffer));
     ChunkVisualizationPass::SetNumActiveChunks(numActiveChunks);
+
+    // First frame for the newly loaded data
+    firstFrame = true;
 }
 
 std::pair<std::vector<uint8_t>, glm::uvec3> OrganVisualizationChunksScene::loadCTheadData() const

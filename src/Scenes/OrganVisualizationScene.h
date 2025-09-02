@@ -51,4 +51,6 @@ private:
 	// Dispatch related constants
 	uint8_t blockSize;
 	size_t blocksPerChunk;
+
+	bool firstFrame = true; // First frame of the current data being rendered
 };

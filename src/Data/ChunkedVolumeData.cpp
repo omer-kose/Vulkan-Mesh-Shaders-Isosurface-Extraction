@@ -126,11 +126,17 @@ void ChunkedVolumeData::extractChunkData(const std::vector<uint8_t>& volumeData,
 	glm::uvec3 startIndex = chunkSize * chunk.chunkIndex;
 	glm::uvec3 endIndex = glm::min(startIndex + chunkSize + 2u, gridSize); // exclusive end
 	
-	// TODO: Check this after fixing the thing above
-	// Compute the lower and upper corner positions of the chunk from the grid corners.
-	glm::vec3 stepSize = (gridUpperCornerPos - gridLowerCornerPos) / glm::vec3(gridSize - 1u);
+	/*
+		Compute the lower and upper corner positions of the chunk from the grid corners. Lower to Upper the range [0, chunkSize] is covered.
+		For marching cubes: positions correspond to corner positions
+		For voxels: positions correspond to voxel centers.
+
+		For both, using the correct stepSize down bellow works correctly during interpolation as the coverage is consistent.
+	*/
+	glm::vec3 stepSize = (gridUpperCornerPos - gridLowerCornerPos) / glm::vec3(gridSize);
 	chunk.lowerCornerPos = gridLowerCornerPos + glm::vec3(startIndex) * stepSize;
-	chunk.upperCornerPos = chunk.lowerCornerPos + glm::vec3(chunkSize) * stepSize;
+	// upper corner pos is one step ahead of the last entry in the chunk. More precisely it exactly lies at index chunkSize (which is the first entry of the shell). This way it correctly covers the whole chunk and grid.
+	chunk.upperCornerPos = chunk.lowerCornerPos + glm::vec3(chunkSize) * stepSize; 
 
 	chunk.minIsoValue = FLT_MAX;
 	chunk.maxIsoValue = -FLT_MAX;

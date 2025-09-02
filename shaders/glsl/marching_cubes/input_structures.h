@@ -1,16 +1,9 @@
 #extension GL_EXT_scalar_block_layout : require
 #extension GL_EXT_buffer_reference : require
 #extension GL_EXT_shader_8bit_storage : require
+#extension GL_GOOGLE_include_directive : enable
 
-layout(set = 0, binding = 0, scalar) uniform SceneData
-{
-	mat4 view;
-	mat4 proj;
-	mat4 viewproj;
-	vec4 ambientColor;
-	vec4 sunlightDirection; //w for sun power
-	vec4 sunlightColor;
-} sceneData;
+#include "../global_input.h"
 
 #define BLOCK_SIZE 4  // block size that each group processes (e.g., 4x4x4)
 
