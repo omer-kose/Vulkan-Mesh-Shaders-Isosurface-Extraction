@@ -192,27 +192,6 @@ void OrganVisualizationChunksScene::performPreRenderPassOps(VkCommandBuffer cmd)
         prevFrameIsovalue = isovalue;
     }
 
-    //if(!firstFrame)
-    //{
-    //    // Using the draw list from the previous frame, draw occluders from the current camera angle to refresh the depth buffer.
-
-    //    // First draw the occluders 
-    //    // Begin a renderpass. Draw Image is not important as this prepass is done for the depth image
-    //    VkRenderingAttachmentInfo colorAttachment = vkinit::attachment_info(pEngine->drawImage.imageView, &pEngine->colorAttachmentClearValue, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    //    VkRenderingAttachmentInfo depthAttachment = vkinit::depth_attachment_info(pEngine->depthImage.imageView, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
-
-    //    VkRenderingInfo renderInfo = vkinit::rendering_info(pEngine->drawExtent, &colorAttachment, &depthAttachment);
-    //    vkCmdBeginRendering(cmd, &renderInfo);
-    //    OccluderPrePass::Execute(pEngine, cmd, drawChunkCountBuffer.buffer);
-    //    vkCmdEndRendering(cmd);
-    //    // Then, build the current frame's HZB image with occluders. Synchronization is done inside HZBDownSamplePass
-    //    HZBDownSamplePass::Execute(pEngine, cmd);
-    //}
-    //else
-    //{
-    //    firstFrame = false;
-    //}
-
     if(indirect)
     {
         // Clear draw count back to 0 
@@ -244,6 +223,7 @@ void OrganVisualizationChunksScene::performPreRenderPassOps(VkCommandBuffer cmd)
 void OrganVisualizationChunksScene::performPostRenderPassOps(VkCommandBuffer cmd)
 {
     HZBDownSamplePass::Execute(pEngine, cmd);
+    sceneData.prevViewProj = sceneData.viewproj;
 }
 
 OrganVisualizationChunksScene::~OrganVisualizationChunksScene()
@@ -323,9 +303,6 @@ void OrganVisualizationChunksScene::loadData(uint32_t organID)
     // Prepare Chunk Visualization
     ChunkVisualizationPass::SetChunkBufferAddresses(pEngine->getBufferDeviceAddress(chunkMetadataBuffer.buffer), pEngine->getBufferDeviceAddress(activeChunkIndicesBuffer.buffer));
     ChunkVisualizationPass::SetNumActiveChunks(numActiveChunks);
-
-    // First frame for the newly loaded data
-    firstFrame = true;
 }
 
 std::pair<std::vector<uint8_t>, glm::uvec3> OrganVisualizationChunksScene::loadCTheadData() const

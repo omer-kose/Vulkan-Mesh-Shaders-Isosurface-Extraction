@@ -17,7 +17,7 @@ bool occlusionTest(vec3 lowerCornerPos, vec3 upperCornerPos)
 	vec4 aabb;
 	bool visible = false;
     float currentDepth;
-	if (projectBox(lowerCornerPos, upperCornerPos, zNear, sceneData.viewproj, aabb, currentDepth))
+	if (projectBox(lowerCornerPos, upperCornerPos, zNear, sceneData.prevViewProj, aabb, currentDepth))
 	{
 		float width = (aabb.z - aabb.x) * depthPyramidWidth;
 		float height = (aabb.w - aabb.y) * depthPyramidHeight;

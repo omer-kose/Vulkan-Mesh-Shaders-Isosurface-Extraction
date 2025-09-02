@@ -96,7 +96,7 @@ uint voxelValue(uint chunkID, uvec3 idx)
 	return uint(chunkMetadataBuffer.chunkMetadata[chunkID].voxelBufferDeviceAddress.voxels[idx.x + shellSize.x * (idx.y + shellSize.y * idx.z)]);
 }
 
-bool projectBox(vec3 bmin, vec3 bmax, float znear, mat4 viewProjection, out vec4 aabb)
+bool projectBox(vec3 bmin, vec3 bmax, float znear, mat4 viewProjection, out vec4 aabb, out float nearestDepth)
 {
 	vec4 SX = viewProjection * vec4(bmax.x - bmin.x, 0.0, 0.0, 0.0);
 	vec4 SY = viewProjection * vec4(0.0, bmax.y - bmin.y, 0.0, 0.0);
@@ -115,14 +115,31 @@ bool projectBox(vec3 bmin, vec3 bmax, float znear, mat4 viewProjection, out vec4
 
 	aabb.xy = min(
 		P0.xy / P0.w, min(P1.xy / P1.w, min(P2.xy / P2.w, min(P3.xy / P3.w,
-		min(P4.xy / P4.w, min(P5.xy / P5.w, min(P6.xy / P6.w, P7.xy / P7.w)))))));
+			min(P4.xy / P4.w, min(P5.xy / P5.w, min(P6.xy / P6.w, P7.xy / P7.w)))))));
 	aabb.zw = max(
 		P0.xy / P0.w, max(P1.xy / P1.w, max(P2.xy / P2.w, max(P3.xy / P3.w,
-		max(P4.xy / P4.w, max(P5.xy / P5.w, max(P6.xy / P6.w, P7.xy / P7.w)))))));
+			max(P4.xy / P4.w, max(P5.xy / P5.w, max(P6.xy / P6.w, P7.xy / P7.w)))))));
 
 	// clip space -> uv space
 	aabb = aabb * vec4(0.5f, 0.5f, 0.5f, 0.5f) + vec4(0.5f);
 
+	// Avoid divide-by-zero by guarding with a small epsilon
+	const float EPS = 1e-9;
+
+	float d0 = (abs(P0.w) > EPS) ? (P0.z / P0.w) : -1e9;
+	float d1 = (abs(P1.w) > EPS) ? (P1.z / P1.w) : -1e9;
+	float d2 = (abs(P2.w) > EPS) ? (P2.z / P2.w) : -1e9;
+	float d3 = (abs(P3.w) > EPS) ? (P3.z / P3.w) : -1e9;
+	float d4 = (abs(P4.w) > EPS) ? (P4.z / P4.w) : -1e9;
+	float d5 = (abs(P5.w) > EPS) ? (P5.z / P5.w) : -1e9;
+	float d6 = (abs(P6.w) > EPS) ? (P6.z / P6.w) : -1e9;
+	float d7 = (abs(P7.w) > EPS) ? (P7.z / P7.w) : -1e9;
+
+	// For the reversed-depth convention the closer point has the LARGER value,
+	// so take the maximum across corners for a conservative 'nearest' value.
+	nearestDepth = max(max(max(d0, d1), max(d2, d3)), max(max(d4, d5), max(d6, d7)));
+
 	return true;
 }
+
 

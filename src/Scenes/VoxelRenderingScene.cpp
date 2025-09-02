@@ -119,23 +119,10 @@ void VoxelRenderingScene::drawFrame(VkCommandBuffer cmd)
     }
 
     VoxelRenderingIndirectPass::ExecuteGraphicsPass(pEngine, cmd, drawChunkCountBuffer.buffer);
-    //OccluderPrePass::Execute(pEngine, cmd, numActiveChunks);
 }
 
 void VoxelRenderingScene::performPreRenderPassOps(VkCommandBuffer cmd)
 {
-    //// First draw the occluders 
-    // // Begin a renderpass. Draw Image is not important as this prepass is done for the depth image
-    //VkRenderingAttachmentInfo colorAttachment = vkinit::attachment_info(pEngine->drawImage.imageView, &pEngine->colorAttachmentClearValue, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    //VkRenderingAttachmentInfo depthAttachment = vkinit::depth_attachment_info(pEngine->depthImage.imageView, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
-
-    //VkRenderingInfo renderInfo = vkinit::rendering_info(pEngine->drawExtent, &colorAttachment, &depthAttachment);
-    //vkCmdBeginRendering(cmd, &renderInfo);
-    //OccluderPrePass::Execute(pEngine, cmd, numActiveChunks);
-    //vkCmdEndRendering(cmd);
-    //// Then, build the current frame's HZB image with occluders. Synchronization is done inside HZBDownSamplePass
-    //HZBDownSamplePass::Execute(pEngine, cmd);
-    
     // Clear draw count back to 0 
     vkCmdFillBuffer(cmd, drawChunkCountBuffer.buffer, 0, 4, 0);
     vkCmdFillBuffer(cmd, drawChunkCountBuffer.buffer, 4, 8, 1); // set y and z group numbers to 1
@@ -164,6 +151,7 @@ void VoxelRenderingScene::performPreRenderPassOps(VkCommandBuffer cmd)
 void VoxelRenderingScene::performPostRenderPassOps(VkCommandBuffer cmd)
 {
     HZBDownSamplePass::Execute(pEngine, cmd);
+    sceneData.prevViewProj = sceneData.viewproj;
 }
 
 VoxelRenderingScene::~VoxelRenderingScene()
@@ -245,10 +233,10 @@ void VoxelRenderingScene::loadData(uint32_t modelID)
     }
 
     // TODO: Testing random data
-    gridSize = glm::uvec3(256);
+    gridSize = glm::uvec3(512);
     generateVoxelScene(gridData, gridSize.x, gridSize.y, gridSize.z);
     // gridData.resize(gridSize.x * gridSize.y * gridSize.z);
-    // fillRandomVoxelData(gridData);
+    //fillRandomVoxelData(gridData);
 
     // Create the chunked version of the grid
     chunkedVolumeData = std::make_unique<ChunkedVolumeData>(pEngine, gridData, gridSize, chunkSize, gridLowerCornerPos, gridUpperCornerPos);
