@@ -16,7 +16,7 @@ public:
 	virtual void load(VulkanEngine* engine) = 0;
 	virtual void processSDLEvents(SDL_Event& e) = 0;
 	virtual void handleUI() = 0; // Add UI field in ImGUI for scene parameters
-	virtual void update() = 0; // called in engine update
+	virtual void update(float dt) = 0; // called in engine update
 	virtual void drawFrame(VkCommandBuffer cmd) = 0; // called by drawing logic in engine to draw the scene
 	virtual void performPreRenderPassOps(VkCommandBuffer cmd) = 0; // called before drawFrame to perform any operations that would like to be done after rendering 
 	virtual void performPostRenderPassOps(VkCommandBuffer cmd) = 0; // called after drawFrame to perform any operations that would like to be done after rendering 

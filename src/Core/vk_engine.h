@@ -11,7 +11,6 @@
 #include <Pass/HZBDownSamplePass.h>
 #include <Pass/MarchingCubesIndirectPass.h>
 #include <Pass/VoxelRenderingIndirectPass.h>
-#include <Pass/OccluderPrePass.h>
 
 #include <Scenes/OrganVisualizationScene.h>
 #include <Scenes/VoxelRenderingScene.h>
@@ -55,6 +54,7 @@ struct FrameData
 struct EngineStats
 {
 	float frameTime;
+	float dt;
 	int triangleCount;
 	int drawCallCount;
 	float sceneUpdateTime;
@@ -111,7 +111,7 @@ public:
 	void drawImgui(VkCommandBuffer cmd, VkImageView targetImageView); 
 
 	// Updates
-	void updateScene();
+	void updateScene(float dt);
 
 	//run main loop
 	void run();

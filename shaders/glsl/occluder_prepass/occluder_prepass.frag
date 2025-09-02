@@ -5,10 +5,8 @@
 
 layout(location = 0) out vec4 color;
 
-layout(location = 0) flat in vec3 chunkColor;
-
 void main()
 {
     // Only depth write is important so color here is not important
-    color = vec4(chunkColor, 1.0);
+    color = vec4(1.0);
 }

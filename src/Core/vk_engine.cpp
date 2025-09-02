@@ -258,11 +258,11 @@ void VulkanEngine::drawImgui(VkCommandBuffer cmd, VkImageView targetImageView)
     vkCmdEndRendering(cmd);
 }
 
-void VulkanEngine::updateScene()
+void VulkanEngine::updateScene(float dt)
 {
     auto start = std::chrono::system_clock::now();
     
-    activeScene->update();
+    activeScene->update(dt);
     
     auto end = std::chrono::system_clock::now();
     // Convert to microseconds (integer), then come back to miliseconds
@@ -363,15 +363,15 @@ void VulkanEngine::run()
         // Make ImGui calculate internal draw structures
         ImGui::Render();
 
-        updateScene();
+        updateScene(stats.dt);
 
         draw();
 
         auto end = std::chrono::system_clock::now();
-        // Convert to microseconds (integer), then come back to miliseconds
-        auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-
-        stats.frameTime = elapsed.count() / 1000.0f;
+        // Compute frame time
+        std::chrono::duration<float> elapsed = end - start;
+        stats.dt = elapsed.count();                    // seconds for game systems
+        stats.frameTime = stats.dt * 1000.0f;         // milliseconds for UI
     }
 }
 
@@ -1056,7 +1056,6 @@ void VulkanEngine::m_initPasses()
     HZBDownSamplePass::Init(this);
     MarchingCubesIndirectPass::Init(this);
     VoxelRenderingIndirectPass::Init(this);
-    OccluderPrePass::Init(this);
 }
 
 void VulkanEngine::m_clearPassResources()
@@ -1067,7 +1066,6 @@ void VulkanEngine::m_clearPassResources()
     HZBDownSamplePass::ClearResources(this);
     MarchingCubesIndirectPass::ClearResources(this);
     VoxelRenderingIndirectPass::ClearResources(this);
-    OccluderPrePass::ClearResources(this);
 }
 
 void VulkanEngine::m_initMaterialLayouts()

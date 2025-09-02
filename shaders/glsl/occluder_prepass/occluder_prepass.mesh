@@ -3,21 +3,8 @@
 #extension GL_EXT_mesh_shader : require
 #extension GL_KHR_shader_subgroup_ballot : require
 #extension GL_KHR_shader_subgroup_arithmetic : require
-#extension GL_EXT_scalar_block_layout : require
 
 #include "input_structures.h"
-
-/* 
-	Only 6 threads do work in this shader but regardless minimum warp size 32 so I am still setting local_size_x to 32.
-*/
-
-// TODO: All the vertices in a face shares the same normal so passing per-vertex normals is a waste 
-layout(location = 0) out MeshOut
-{
-	vec3 normal;
-} meshOut[];
-
-taskPayloadSharedEXT TaskPayload taskPayload;
 
 // These are also the face normals
 const ivec3 neighborOffset[6] = ivec3[6](
@@ -26,15 +13,14 @@ const ivec3 neighborOffset[6] = ivec3[6](
     ivec3( 0,0,1), ivec3( 0, 0,-1)
 );
 
-/* 
-	The thread that works on its face will check the corresponding neighbor for occupation. If the neighbor is occupied that face will never be visible anyways. So, no need to render it.
-*/
-bool neighborOccupied(uint chunkID, uvec3 voxelID, uint faceId) 
+uvec3 decodeBlock(uint blockLinear, uvec3 n)
 {
-	// Index of the neighbor
-    ivec3 neighborID = ivec3(voxelID) + neighborOffset[faceId];
-    if (neighborID.x < 0 || neighborID.y < 0 || neighborID.z < 0) return false;
-	return voxelValue(chunkID, neighborID) != 0;
+    uint xy = n.x * n.y;
+    uint z = blockLinear / xy;
+    uint remaining = blockLinear % xy;
+    uint y = remaining / n.x;
+    uint x = remaining % n.x;
+    return uvec3(x, y, z);
 }
 
 // Generate 4 corners for a given face index (0..5) in the world space
@@ -82,53 +68,58 @@ void makeFaceCorners(int faceId, vec3 center, vec3 size, out vec3 P[4])
     }
 }
 
+/*
+    Each mesh shader group will render a block as a single voxel
+*/ 
+
 layout(local_size_x = 32) in;
 layout(triangles, max_vertices = 12, max_primitives = 6) out;
 void main()
 {
-	const uint threadID  = gl_LocalInvocationID.x;
-	const uint meshletID = taskPayload.meshlets[gl_WorkGroupID.x].meshletID;
-	const uint chunkID = taskPayload.chunkID;
-    ChunkMetadata metadata = chunkMetadataBuffer.chunkMetadata[chunkID];
+    // Fetch chunk data
+    const uint threadID = gl_LocalInvocationID.x;
+    uint chunkID = chunkDrawDataBuffer.chunkDrawData[gl_WorkGroupID.x].chunkID;
+    uint localBlockID = chunkDrawDataBuffer.chunkDrawData[gl_WorkGroupID.x].localWorkgroupID;
+    vec3 lower = chunkMetadataBuffer.chunkMetadata[chunkID].lowerCornerPos;
+    vec3 upper = chunkMetadataBuffer.chunkMetadata[chunkID].upperCornerPos;
 
-	// Reconstruct (firstVoxelID_X, firstVoxelID_Y, firstVoxelID_Z) from MeshletID
-    uint firstVoxelID_X = meshletID % chunkSize.x;
-    uint firstVoxelID_Y = (meshletID / chunkSize.x) % chunkSize.y;
-    uint firstVoxelID_Z = meshletID / (chunkSize.x * chunkSize.y);
+    // Block's coordinates in the chunk
+    const uvec3 groupsPerChunk = chunkSize / uvec3(BLOCK_SIZE);
+    uvec3 b = decodeBlock(localBlockID, groupsPerChunk);
 
-    vec3 voxelStep = (metadata.upperCornerPos - metadata.lowerCornerPos) / vec3(chunkSize);
-    vec3 voxelCenter = metadata.lowerCornerPos + vec3(firstVoxelID_X, firstVoxelID_Y, firstVoxelID_Z) * voxelStep;
+    // Block AABB
+    vec3 blockStep = ((upper - lower) / vec3(chunkSize)) * float(BLOCK_SIZE);
+    vec3 blockCenter = lower + vec3(b) * blockStep;
 
 	// Decide the faces to render
 	bool keep = false; // Only 6 threads will modify this on their stack
 	if(threadID < 6)
 	{
-		vec3 voxelToCamera = sceneData.cameraPos - voxelCenter;
+		vec3 blockToCamera = sceneData.cameraPos - blockCenter;
 		bool cameraSide = false;
 		switch(threadID)
 		{
 			case 0: 
-				cameraSide = (voxelToCamera.x > 0.0); // +X
+				cameraSide = (blockToCamera.x > 0.0); // +X
 				break;
 			case 1:
-				cameraSide = (voxelToCamera.x < 0.0); // -X
+				cameraSide = (blockToCamera.x < 0.0); // -X
 				break;
 			case 2:
-				cameraSide = (voxelToCamera.y > 0.0); // +Y
+				cameraSide = (blockToCamera.y > 0.0); // +Y
 				break;
 			case 3:
-				cameraSide = (voxelToCamera.y < 0.0); // -Y
+				cameraSide = (blockToCamera.y < 0.0); // -Y
 				break;
 			case 4:
-				cameraSide = (voxelToCamera.z > 0.0); // +Z
+				cameraSide = (blockToCamera.z > 0.0); // +Z
 				break;
 			case 5:
-				cameraSide = (voxelToCamera.z < 0.0); // -Z
+				cameraSide = (blockToCamera.z < 0.0); // -Z
 				break;
 		}
 
-        bool blocked = neighborOccupied(chunkID, uvec3(firstVoxelID_X, firstVoxelID_Y, firstVoxelID_Z), threadID);
-        keep = cameraSide && !blocked;
+        keep = cameraSide;
 	}
 
 	// Find the total number of faces to be rendered
@@ -148,13 +139,12 @@ void main()
         uint baseP = 2u * faceWriteOffset;
 
 		vec3 P[4];
-        makeFaceCorners(int(threadID), voxelCenter, voxelSize, P);
+        makeFaceCorners(int(threadID), blockCenter, blockStep, P);
         vec3 N = neighborOffset[threadID];
 
 		for (uint i = 0u; i < 4u; ++i) 
 		{
             gl_MeshVerticesEXT[baseV + i].gl_Position = sceneData.viewproj * vec4(P[i], 1.0);
-            meshOut[baseV + i].normal = N;
         }
 
         gl_PrimitiveTriangleIndicesEXT[baseP + 0] = uvec3(baseV+0, baseV+1, baseV+2);

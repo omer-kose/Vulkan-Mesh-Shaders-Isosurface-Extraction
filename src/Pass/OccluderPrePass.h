@@ -10,14 +10,14 @@ public:
 	struct OccluderPushConstants
 	{
 		VkDeviceAddress chunkMetadataBufferAddress;
-		VkDeviceAddress activeChunkIndicesBuffer;
-		uint32_t numActiveChunks;
+		VkDeviceAddress chunkDrawDataBufferAddress;
+		glm::uvec3 chunkSize;
 	};
 public:
 	static void Init(VulkanEngine* engine);
-	static void Execute(VulkanEngine* engine, VkCommandBuffer cmd, size_t numActiveChunks);
-	static void SetChunkBufferAddresses(const VkDeviceAddress& chunkMetadataBufferAddress, const VkDeviceAddress& activeChunkIndicesBuffer);
-	static void SetNumActiveChunks(uint32_t numActiveChunks);
+	static void Execute(VulkanEngine* engine, VkCommandBuffer cmd, VkBuffer indirectCommandBuffer);
+	static void SetChunkBufferAddresses(const VkDeviceAddress& chunkMetadataBufferAddress, const VkDeviceAddress& chunkDrawDataBufferAddress);
+	static void SetChunkSize(const glm::uvec3& chunkSize);
 	static void ClearResources(VulkanEngine* engine);
 private:
 	static VkPipeline Pipeline;

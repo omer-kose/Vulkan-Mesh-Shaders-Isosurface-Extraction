@@ -35,7 +35,6 @@ public:
 		glm::uvec3 shellSize; // For chunks a shell with +2 on right-bottom-front boundaries for correct computation. For voxel rendering, only +1 is enough to check neighbor occupation but I use the same chuking strategy for both MC and Voxel rendering
 		glm::vec3 voxelSize; // Size of a singular voxel. All the voxels are uniformly shaped
 		uint32_t numChunks;
-		glm::vec3 cameraPos;
 		float zNear;
 		uint32_t depthPyramidWidth;
 		uint32_t depthPyramidHeight;
@@ -55,7 +54,6 @@ public:
 	static void SetVoxelSize(const glm::vec3& voxelSize);
 	static void SetNumChunks(uint32_t numChunks);
 	static void SetCameraZNear(float zNear);
-	static void SetCameraPos(const glm::vec3& cameraPos);
 	static void SetDepthPyramidSizes(uint32_t depthPyramidWidth, uint32_t depthPyramidHeight);
 	static void ClearResources(VulkanEngine* engine);
 private:

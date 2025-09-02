@@ -14,7 +14,7 @@ public:
 
     void processSDLEvent(SDL_Event& e);
 
-    void update();
+    void update(float dt);
 
     void setSpeed(float speed_in);
     void setMouseSenstivity(float mouseSensitivity_in);
