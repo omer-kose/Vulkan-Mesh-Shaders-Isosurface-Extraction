@@ -8,6 +8,7 @@
 #include <Pass/OccluderPrePass.h>
 
 #include <Data/ChunkedVolumeData.h>
+#include <Data/ogt_vox.h>
 
 class VoxelRenderingScene : public Scene
 {
@@ -26,9 +27,10 @@ private:
 
 	void fillRandomVoxelData(std::vector<uint8_t>& grid, float fillProbability = 0.3f, int seed = 42);
 	void generateVoxelScene(std::vector<uint8_t>& grid, int sizeX, int sizeY, int sizeZ);
+	const ogt_vox_scene* loadVox(const char* voxFilePath) const;
 private:
 	// Data Loading Params
-	// std::vector<std::string> modelNames; // This is for selecting the organ data from UI. The names are hardcoded. 
+	std::vector<std::string> modelNames; // This is for selecting the organ data from UI. The names are hardcoded. 
 	uint32_t selectedModelID; // Keep track of the current data ID to see if the data is changed.
 private:
 	glm::uvec3 chunkSize;

@@ -111,7 +111,15 @@ bool projectBox(vec3 bmin, vec3 bmax, float znear, mat4 viewProjection, out vec4
 	vec4 P6 = P4 + SY;
 	vec4 P7 = P6 + SZ;
 
-	if(min(P0.w, min(P1.w, min(P2.w, min(P3.w, min(P4.w, min(P5.w, min(P6.w, P7.w))))))) < znear) return false;
+	/*
+		Near-Plane Rejection
+		There are two possible approaches here:
+		1- Use min to cull the box totally, if any of the corners are behind the camera
+		2- Use max to cull the box totally, if all of the corners are behind the camera
+
+		Here, I prefer culling if the box is entirely behind the camera 
+	*/
+	if(max(P0.w, max(P1.w, max(P2.w, max(P3.w, max(P4.w, max(P5.w, max(P6.w, P7.w))))))) < znear) return false;
 
 	aabb.xy = min(
 		P0.xy / P0.w, min(P1.xy / P1.w, min(P2.xy / P2.w, min(P3.xy / P3.w,
