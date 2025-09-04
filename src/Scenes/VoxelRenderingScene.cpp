@@ -29,7 +29,7 @@ void VoxelRenderingScene::load(VulkanEngine* engine)
     gridLowerCornerPos = glm::vec3(-0.5f);
     gridUpperCornerPos = glm::vec3(0.5f);
 
-    modelNames = { "biome", "monument", "teapot" };
+    modelNames = { "biome", "monument", "teapot"};
 
     selectedModelID = 0;
     loadData(selectedModelID);
@@ -285,6 +285,11 @@ void VoxelRenderingScene::loadData(uint32_t modelID)
         size_t numVoxels = gridSize.x * gridSize.y * gridSize.z;
         gridData.resize(numVoxels);
         std::memcpy(gridData.data(), model->voxel_data, numVoxels);
+        // Allocate the color palette buffer. 256 maximum colors. Each color is 4 channel 1 byte
+        size_t colorPaletteBufferSize = 256 * 4 * sizeof(uint8_t);
+        colorPaletteBuffer = pEngine->createAndUploadGPUBuffer(colorPaletteBufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, (void*)pVoxScene->palette.color);
+        // Set the descriptor set
+        VoxelRenderingIndirectPass::SetColorPaletteBinding(pEngine, colorPaletteBuffer.buffer, colorPaletteBufferSize);
         delete pVoxScene;
     }
 
@@ -353,4 +358,5 @@ void VoxelRenderingScene::clearBuffers()
     pEngine->destroyBuffer(chunkDrawDataBuffer);
     pEngine->destroyBuffer(activeChunkIndicesBuffer);
     pEngine->destroyBuffer(drawChunkCountBuffer);
+    pEngine->destroyBuffer(colorPaletteBuffer);
 }

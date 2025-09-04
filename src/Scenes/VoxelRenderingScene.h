@@ -47,6 +47,8 @@ private:
 	uint32_t numActiveChunks; // In Voxel Renderer, all the chunks are always active, at least for now.
 	AllocatedBuffer activeChunkIndicesBuffer;
 	AllocatedBuffer drawChunkCountBuffer;
+	// Resources
+	AllocatedBuffer colorPaletteBuffer; 
 private:
 	// Dispatch related constants
 	uint8_t blockSize;

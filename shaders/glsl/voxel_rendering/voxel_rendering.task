@@ -4,6 +4,8 @@
 #extension GL_KHR_shader_subgroup_ballot : require
 #extension GL_KHR_shader_subgroup_arithmetic : require
 #extension GL_EXT_scalar_block_layout : require
+#extension GL_EXT_shader_8bit_storage : require
+
 
 #include "input_structures.h"
 
@@ -46,7 +48,8 @@ void main()
         // Skip voxels outside the grid
 		if(any(greaterThanEqual(voxelID, shellSize))) continue;
 
-		bool accept = voxelValue(drawData.chunkID, voxelID) > 0; // Voxel is accepted if occupied  
+		uint value = voxelValue(drawData.chunkID, voxelID); 
+		bool accept = value > 0; // Voxel is accepted if occupied  
 		uint payloadIndex = subgroupExclusiveAdd(uint(accept));
 
 		if (accept)
@@ -54,6 +57,7 @@ void main()
 			// Output a unique meshlet ID for the mesh shader to decode (simply flattening the voxel index in (x,y,z) to a single float which can be easily converted back to voxel index)
 			uint meshletID = (firstVoxelID_Z + z) * chunkSize.y * chunkSize.x + (firstVoxelID_Y + y) * chunkSize.x + (firstVoxelID_X + x);
 			taskPayload.meshlets[count + payloadIndex].meshletID = meshletID;
+			taskPayload.colorIndex[count + payloadIndex] = value;
 			taskPayload.chunkID = drawData.chunkID;
 		}
 

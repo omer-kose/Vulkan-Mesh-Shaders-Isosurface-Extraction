@@ -55,14 +55,15 @@ public:
 	static void SetNumChunks(uint32_t numChunks);
 	static void SetCameraZNear(float zNear);
 	static void SetDepthPyramidSizes(uint32_t depthPyramidWidth, uint32_t depthPyramidHeight);
+	static void SetColorPaletteBinding(VulkanEngine* engine, VkBuffer colorPaletteBuffer, size_t bufferSize);
 	static void ClearResources(VulkanEngine* engine);
 private:
 	static VkPipeline GraphicsPipeline;
 	static VkPipelineLayout GraphicsPipelineLayout;
 	static VkPipeline ComputePipeline;
 	static VkPipelineLayout ComputePipelineLayout;
-	// static VkDescriptorSet GraphicsDescriptorSet; 
-	// static VkDescriptorSetLayout GraphicsDescriptorSetLayout; // Vulkan complains when layout is deleted. It is a false positive but anyways. (it complains in only some passes I have no idea why yet)
+	static VkDescriptorSet GraphicsDescriptorSet;  // set=1 containing color palette
+	static VkDescriptorSetLayout GraphicsDescriptorSetLayout; // Vulkan complains when layout is deleted. It is a false positive but anyways. (it complains in only some passes I have no idea why yet)
 	static VkDescriptorSet ComputeDescriptorSet; // set=1 containing the depth image for the compute pass
 	static VkDescriptorSetLayout ComputeDescriptorSetLayout; // Vulkan complains when layout is deleted. It is a false positive but anyways. (it complains in only some passes I have no idea why yet)
 	// Resources

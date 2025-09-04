@@ -4,6 +4,8 @@
 #extension GL_KHR_shader_subgroup_ballot : require
 #extension GL_KHR_shader_subgroup_arithmetic : require
 #extension GL_EXT_scalar_block_layout : require
+#extension GL_EXT_shader_8bit_storage : require
+
 
 #include "input_structures.h"
 
@@ -11,10 +13,11 @@
 	Only 6 threads do work in this shader but regardless minimum warp size 32 so I am still setting local_size_x to 32.
 */
 
-// TODO: All the vertices in a face shares the same normal so passing per-vertex normals is a waste 
+// TODO: All the vertices in a face shares the same data so passing per vertex is a waste.
 layout(location = 0) out MeshOut
 {
 	vec3 normal;
+    flat uint colorIndex;
 } meshOut[];
 
 taskPayloadSharedEXT TaskPayload taskPayload;
@@ -88,6 +91,7 @@ void main()
 {
 	const uint threadID  = gl_LocalInvocationID.x;
 	const uint meshletID = taskPayload.meshlets[gl_WorkGroupID.x].meshletID;
+    const uint colorIndex = taskPayload.colorIndex[gl_WorkGroupID.x];
 	const uint chunkID = taskPayload.chunkID;
     ChunkMetadata metadata = chunkMetadataBuffer.chunkMetadata[chunkID];
 
@@ -155,6 +159,7 @@ void main()
 		{
             gl_MeshVerticesEXT[baseV + i].gl_Position = sceneData.viewproj * vec4(P[i], 1.0);
             meshOut[baseV + i].normal = N;
+            meshOut[baseV + i].colorIndex = colorIndex;
         }
 
         gl_PrimitiveTriangleIndicesEXT[baseP + 0] = uvec3(baseV+0, baseV+1, baseV+2);

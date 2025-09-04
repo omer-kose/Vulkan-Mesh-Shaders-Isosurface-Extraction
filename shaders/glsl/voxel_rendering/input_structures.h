@@ -39,6 +39,16 @@ struct ChunkDrawData
 	uint localWorkgroupID; // Explicitly assign a local work group ID working on that chunk. In other words, this is the id of the block that task shader will work on in the chunk. Range: [0, numGroupsPerChunk - 1]
 };
 
+struct VoxelColor
+{
+	uint8_t color[4]; // also compatible with vox files
+};
+
+layout(set = 1, binding = 0, scalar) uniform Palette
+{
+	VoxelColor palette[256];
+};
+
 layout(buffer_reference, scalar) readonly buffer ChunkMetadataBuffer
 {
 	ChunkMetadata chunkMetadata[];
@@ -85,6 +95,7 @@ struct MeshletData
 struct TaskPayload
 {
 	MeshletData meshlets[64];
+	uint colorIndex[64]; // index to the palette which is equal to voxel value
 	uint chunkID;
 };
 
