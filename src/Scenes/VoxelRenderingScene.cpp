@@ -5,6 +5,9 @@
 #include <Core/vk_pipelines.h>
 #include <Core/vk_barriers.h>
 
+#define OGT_VOX_IMPLEMENTATION
+#include <Data/ogt_vox.h>
+
 #include <fstream>
 
 #include "imgui.h"
@@ -23,16 +26,16 @@ void VoxelRenderingScene::load(VulkanEngine* engine)
     chunkSize = glm::uvec3(32, 32, 32);
     blockSize = 4;
     blocksPerChunk = (chunkSize.x * chunkSize.y * chunkSize.z) / (blockSize * blockSize * blockSize);
-    gridLowerCornerPos = glm::vec3(-1.0f);
-    gridUpperCornerPos = glm::vec3(1.0f);
+    gridLowerCornerPos = glm::vec3(-0.5f);
+    gridUpperCornerPos = glm::vec3(0.5f);
 
-    // organNames = { "CThead", "Kidney" };
+    modelNames = { "biome", "monument", "teapot"};
 
     selectedModelID = 0;
     loadData(selectedModelID);
 
     // Set the camera
-    mainCamera = Camera(glm::vec3(-2.0f, 0.0f, 2.0f), 0.0f, -45.0f);
+    mainCamera = Camera(glm::vec3(0.0f, 0.0f, 2.0f), 0.0f, 0.0f);
     mainCamera.setSpeed(2.0f);
 
     // Set attachment clear color
@@ -51,19 +54,19 @@ void VoxelRenderingScene::handleUI()
 {
     ImGui::Begin("Voxel Renderer Parameters");
 
-    /*
+    
         // Model Selection
-        if(ImGui::BeginCombo("Model Selection", organNames[selectedOrganID].c_str()))
+        if(ImGui::BeginCombo("Model Selection", modelNames[selectedModelID].c_str()))
         {
-            for(int i = 0; i < organNames.size(); i++)
+            for(int i = 0; i < modelNames.size(); i++)
             {
-                const bool isSelected = (selectedOrganID == i);
-                if(ImGui::Selectable(organNames[i].c_str(), isSelected))
+                const bool isSelected = (selectedModelID == i);
+                if(ImGui::Selectable(modelNames[i].c_str(), isSelected))
                 {
-                    if(selectedOrganID != i)
+                    if(selectedModelID != i)
                     {
-                        selectedOrganID = i;
-                        loadData(selectedOrganID);
+                        selectedModelID = i;
+                        loadData(selectedModelID);
                     }
                 }
 
@@ -73,7 +76,7 @@ void VoxelRenderingScene::handleUI()
             }
             ImGui::EndCombo();
         }
-    */
+    
     ImGui::Checkbox("Show Chunks", &showChunks);
     ImGui::End();
 }
@@ -85,7 +88,7 @@ void VoxelRenderingScene::update(float dt)
     sceneData.cameraPos = mainCamera.position;
     sceneData.view = mainCamera.getViewMatrix();
     constexpr float fov = glm::radians(45.0f);
-    constexpr float zNear = 0.1f;
+    constexpr float zNear = 0.01f;
     constexpr float zFar = 10000.f;
 
     VkExtent2D windowExtent = pEngine->getWindowExtent();
@@ -218,23 +221,81 @@ void VoxelRenderingScene::generateVoxelScene(std::vector<uint8_t>& grid, int siz
         });
 }
 
+const ogt_vox_scene* VoxelRenderingScene::loadVox(const char* voxFilePath) const
+{
+    std::ifstream file(voxFilePath, std::ios::ate | std::ios::binary);
+
+    if(!file.is_open())
+    {
+        fmt::println("Could not open the file: {}", voxFilePath);
+        return {};
+    }
+
+    // As the cursor is already at the end, we can directly asses the byte size of the file
+    size_t bufferSize = (size_t)file.tellg();
+
+    // Store the shader code
+    std::vector<uint8_t> buffer(bufferSize);
+
+    // Put the cursor at the beginning
+    file.seekg(0);
+
+    // Load the entire file into the buffer (read() reads the file byte by byte)
+    file.read(reinterpret_cast<char*>(buffer.data()), bufferSize);
+
+    // We are done with the file
+    file.close();
+
+    // construct the scene from the buffer
+    const ogt_vox_scene* scene = ogt_vox_read_scene(buffer.data(), bufferSize);
+
+    return scene;
+}
+
 void VoxelRenderingScene::loadData(uint32_t modelID)
 {
     // Make sure that Vulkan is done working with the buffer (not the best way but in this case this scene does not do anything else other than rendering a geometry)
     vkDeviceWaitIdle(pEngine->device);
     clearBuffers();
     std::vector<uint8_t> gridData; glm::uvec3 gridSize;
+    const ogt_vox_scene* pVoxScene = nullptr;
 
     switch(modelID)
     {
+    case 0:
+        pVoxScene = loadVox("../../assets/biome.vox");
+        break;
+    case 1:
+        pVoxScene = loadVox("../../assets/monument.vox");
+        break;
+    case 2:
+        pVoxScene = loadVox("../../assets/teapot.vox");
+        break;
     default:
         // fmt::println("No existing model is selected!");
         break;
     }
 
+    // Extract data out of vox scene
+    if(pVoxScene)
+    {
+        // Only one model per scene, at least for now.
+        const ogt_vox_model* model = pVoxScene->models[0];
+        gridSize = glm::uvec3(model->size_x, model->size_y, model->size_z);
+        size_t numVoxels = gridSize.x * gridSize.y * gridSize.z;
+        gridData.resize(numVoxels);
+        std::memcpy(gridData.data(), model->voxel_data, numVoxels);
+        // Allocate the color palette buffer. 256 maximum colors. Each color is 4 channel 1 byte
+        size_t colorPaletteBufferSize = 256 * 4 * sizeof(uint8_t);
+        colorPaletteBuffer = pEngine->createAndUploadGPUBuffer(colorPaletteBufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, (void*)pVoxScene->palette.color);
+        // Set the descriptor set
+        VoxelRenderingIndirectPass::SetColorPaletteBinding(pEngine, colorPaletteBuffer.buffer, colorPaletteBufferSize);
+        delete pVoxScene;
+    }
+
     // TODO: Testing random data
-    gridSize = glm::uvec3(512);
-    generateVoxelScene(gridData, gridSize.x, gridSize.y, gridSize.z);
+    // gridSize = glm::uvec3(512);
+    // generateVoxelScene(gridData, gridSize.x, gridSize.y, gridSize.z);
     // gridData.resize(gridSize.x * gridSize.y * gridSize.z);
     //fillRandomVoxelData(gridData);
 
@@ -297,4 +358,5 @@ void VoxelRenderingScene::clearBuffers()
     pEngine->destroyBuffer(chunkDrawDataBuffer);
     pEngine->destroyBuffer(activeChunkIndicesBuffer);
     pEngine->destroyBuffer(drawChunkCountBuffer);
+    pEngine->destroyBuffer(colorPaletteBuffer);
 }

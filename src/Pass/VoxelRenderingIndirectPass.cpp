@@ -9,8 +9,8 @@ VkPipeline VoxelRenderingIndirectPass::GraphicsPipeline = VK_NULL_HANDLE;
 VkPipelineLayout VoxelRenderingIndirectPass::GraphicsPipelineLayout = VK_NULL_HANDLE;
 VkPipeline VoxelRenderingIndirectPass::ComputePipeline = VK_NULL_HANDLE;
 VkPipelineLayout VoxelRenderingIndirectPass::ComputePipelineLayout = VK_NULL_HANDLE;
-// VkDescriptorSet VoxelRenderingIndirectPass::GraphicsDescriptorSet = VK_NULL_HANDLE;
-// VkDescriptorSetLayout VoxelRenderingIndirectPass::GraphicsDescriptorSetLayout = VK_NULL_HANDLE;
+VkDescriptorSet VoxelRenderingIndirectPass::GraphicsDescriptorSet = VK_NULL_HANDLE;
+VkDescriptorSetLayout VoxelRenderingIndirectPass::GraphicsDescriptorSetLayout = VK_NULL_HANDLE;
 VkDescriptorSet VoxelRenderingIndirectPass::ComputeDescriptorSet = VK_NULL_HANDLE;
 VkDescriptorSetLayout VoxelRenderingIndirectPass::ComputeDescriptorSetLayout = VK_NULL_HANDLE;
 VoxelRenderingIndirectPass::VoxelPushConstants VoxelRenderingIndirectPass::PushConstants = {};
@@ -55,16 +55,10 @@ void VoxelRenderingIndirectPass::Init(VulkanEngine* engine)
     // Create Graphics Descriptor Sets
     DescriptorLayoutBuilder layoutBuilder;
     VkDescriptorSetLayout sceneDescriptorLayout = engine->getSceneDescriptorLayout();
-
-    // TODO: Most probably a color buffer will be added
-    /*
-    layoutBuilder.addBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER); // MC Table (only used in the Mesh Shader)
-    GraphicsDescriptorSetLayout = layoutBuilder.build(engine->device, VK_SHADER_STAGE_MESH_BIT_EXT);
-    GraphicsDescriptorSet = engine->globalDescriptorAllocator.allocate(engine->device, MCDescriptorSetLayout);
-    DescriptorWriter writer;
-    writer.writeBuffer(0, MCLookupTableBuffer.buffer, lookupTableSize, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
-    writer.updateSet(engine->device, MCDescriptorSet);
-    */
+    
+    layoutBuilder.addBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER); // Color palette
+    GraphicsDescriptorSetLayout = layoutBuilder.build(engine->device, VK_SHADER_STAGE_FRAGMENT_BIT);
+    GraphicsDescriptorSet = engine->globalDescriptorAllocator.allocate(engine->device, GraphicsDescriptorSetLayout);
     // Create Compute Descriptor Sets
     layoutBuilder.clear();
     layoutBuilder.addBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER); // Depth Pyramid
@@ -79,10 +73,10 @@ void VoxelRenderingIndirectPass::Init(VulkanEngine* engine)
     // Create The Graphics Pipeline
     pcRange.stageFlags = VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT;
     VkPipelineLayoutCreateInfo pipelineLayoutInfo = vkinit::pipeline_layout_create_info();
-    VkDescriptorSetLayout graphicsSetLayouts[] = { sceneDescriptorLayout };
+    VkDescriptorSetLayout graphicsSetLayouts[] = { sceneDescriptorLayout, GraphicsDescriptorSetLayout };
     pipelineLayoutInfo.pushConstantRangeCount = 1;
     pipelineLayoutInfo.pPushConstantRanges = &pcRange;
-    pipelineLayoutInfo.setLayoutCount = 1;
+    pipelineLayoutInfo.setLayoutCount = 2;
     pipelineLayoutInfo.pSetLayouts = graphicsSetLayouts;
 
     VK_CHECK(vkCreatePipelineLayout(engine->device, &pipelineLayoutInfo, nullptr, &GraphicsPipelineLayout));
@@ -135,6 +129,7 @@ void VoxelRenderingIndirectPass::ExecuteGraphicsPass(VulkanEngine* engine, VkCom
     // bind descriptors
     VkDescriptorSet sceneDescriptorSet = engine->getSceneBufferDescriptorSet();
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, GraphicsPipelineLayout, 0, 1, &sceneDescriptorSet, 0, nullptr);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, GraphicsPipelineLayout, 1, 1, &GraphicsDescriptorSet, 0, nullptr);
 
     vkCmdDrawMeshTasksIndirectEXT(cmd, indirectCommandBuffer, 0, 1, 0);
 }
@@ -180,9 +175,16 @@ void VoxelRenderingIndirectPass::SetDepthPyramidSizes(uint32_t depthPyramidWidth
     PushConstants.depthPyramidHeight = depthPyramidHeight;
 }
 
+void VoxelRenderingIndirectPass::SetColorPaletteBinding(VulkanEngine* engine, VkBuffer colorPaletteBuffer, size_t bufferSize)
+{
+    DescriptorWriter writer;
+    writer.writeBuffer(0, colorPaletteBuffer, bufferSize, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+    writer.updateSet(engine->device, GraphicsDescriptorSet);
+}
+
 void VoxelRenderingIndirectPass::ClearResources(VulkanEngine* engine)
 {
-    // vkDestroyDescriptorSetLayout(engine->device, GraphicsDescriptorSetLayout, nullptr);
+    vkDestroyDescriptorSetLayout(engine->device, GraphicsDescriptorSetLayout, nullptr);
     vkDestroyDescriptorSetLayout(engine->device, ComputeDescriptorSetLayout, nullptr);
     vkDestroyPipelineLayout(engine->device, GraphicsPipelineLayout, nullptr);
     vkDestroyPipeline(engine->device, GraphicsPipeline, nullptr);
