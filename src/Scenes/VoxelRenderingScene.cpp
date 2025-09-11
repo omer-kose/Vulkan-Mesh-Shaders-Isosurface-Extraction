@@ -343,9 +343,6 @@ void VoxelRenderingScene::loadData(uint32_t modelID)
     glm::vec3 voxelSize = (gridUpperCornerPos - gridLowerCornerPos) / glm::vec3(gridSize - 1u);
     VoxelRenderingIndirectPass::SetVoxelSize(voxelSize);
 
-    // Occluder Prepass params
-    OccluderPrePass::SetChunkBufferAddresses(pEngine->getBufferDeviceAddress(chunkMetadataBuffer.buffer), pEngine->getBufferDeviceAddress(activeChunkIndicesBuffer.buffer));
-
     // Prepare Chunk Visualization
     ChunkVisualizationPass::SetChunkBufferAddresses(pEngine->getBufferDeviceAddress(chunkMetadataBuffer.buffer), pEngine->getBufferDeviceAddress(activeChunkIndicesBuffer.buffer));
     ChunkVisualizationPass::SetNumActiveChunks(numActiveChunks);
