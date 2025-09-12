@@ -9,16 +9,26 @@
 #include <functional>
 #include <array>
 
-// SVONodeGPU used by GPU upload and tests (level included for diagnostics)
+// Tune this according to memory vs quality tradeoff.
+// Must be power of two. 8 is a good start for terrain.
+constexpr int BRICK_SIZE = 8;
+constexpr int BRICK_VOLUME = BRICK_SIZE * BRICK_SIZE * BRICK_SIZE;
+
 struct SVONodeGPU
 {
     glm::vec3 lowerCorner;
     glm::vec3 upperCorner;
     uint8_t   colorIndex;
-    int32_t   level;      // level: 0 = finest voxels, >0 = coarser
+    uint8_t   level;      // 0 = finest voxels (we use bricks at leafLevel)
+    uint32_t  brickIndex; // UINT32_MAX => no brick present (mono-color leaf or internal)
 };
 
-// Custom comparator for glm::uvec3
+// simple fixed-size brick type (stores BRICK_SIZE^3 bytes)
+struct Brick
+{
+    std::array<uint8_t, BRICK_VOLUME> voxels;
+};
+
 struct UVec3Comparator
 {
     bool operator()(const glm::uvec3& a, const glm::uvec3& b) const
@@ -38,6 +48,7 @@ public:
         const glm::vec3& worldUpper);
 
     const std::vector<SVONodeGPU>& getFlatGPUNodes() const { return flatNodesGPU; }
+    const std::vector<Brick>& getBricks() const { return bricks; }
     std::vector<uint32_t> selectNodes(const glm::vec3& cameraPos, float lodBaseDist) const;
     size_t estimateMemoryUsageBytes() const;
 
@@ -45,16 +56,18 @@ private:
     // Compact node representation with explicit children indices
     struct Node
     {
-        uint32_t childrenMask = 0;            // which children exist (bit 0..7)
-        uint8_t  color = 0;                   // palette index (0==empty)
-        int32_t  parentIndex = -1;            // index of parent node, -1 = root candidate
-        std::array<int32_t, 8> children;      // explicit child indices, -1 if absent
-        glm::uvec3 coord;                     // coordinates in padded index space for this level
-        int       level = 0;                  // 0 = finest (voxels)
-        int32_t   flatIndex = -1;             // index into flatNodesGPU after flatten
+        glm::u16vec3 coord;                    // coordinate in padded grid for this level
+        int32_t parentIndex = -1;              // parent index or -1
+        std::array<int32_t, 8> children;       // child indices, -1 if absent
+        uint8_t childrenMask = 0;              // bitmask of which children exist
+        int32_t flatIndex = -1;                // index into flatNodesGPU
+        int32_t brickIndex = -1;               // index into bricks (or -1 for none)
+        uint8_t level = 0;                     // level (0=voxels, leafLevel=brick size)
+        uint8_t color = 0;                     // aggregated color (mono color or majority)
 
         Node(int l = 0, const glm::uvec3& c = glm::uvec3(0), uint8_t col = 0)
-            : children{ -1,-1,-1,-1,-1,-1,-1,-1 }, coord(c), level(l), color(col), flatIndex(-1)
+            : coord(glm::u16vec3(c)), parentIndex(-1), children{ -1,-1,-1,-1,-1,-1,-1,-1 },
+            childrenMask(0), flatIndex(-1), brickIndex(-1), level(static_cast<uint8_t>(l)), color(col)
         {
         }
     };
@@ -64,11 +77,13 @@ private:
     glm::uvec3 paddedGridSize;
     glm::vec3  worldLower;
     glm::vec3  worldUpper;
-    glm::vec3  voxelSize;
-    int levels;
+    glm::vec3  voxelSize; // computed using paddedGridSize
+    int levels;           // number of levels (level indices 0..levels-1)
+    int leafLevel;        // level at which bricks live (log2(BRICK_SIZE))
 
-    std::vector<Node> nodes;           // All nodes in compact format
-    std::vector<SVONodeGPU> flatNodesGPU;
+    std::vector<Node> nodes;                 // sparse nodes (only non-empty / bricks)
+    std::vector<SVONodeGPU> flatNodesGPU;    // flattened snapshot for GPU
+    std::vector<Brick> bricks;               // dense brick data when necessary
 
     inline uint8_t voxelValue(const glm::uvec3& idx) const;
     static inline uint32_t gridLinear(const glm::uvec3& i, const glm::uvec3& s);

@@ -2,6 +2,8 @@
 #include <algorithm>
 #include <cmath>
 #include <numeric>
+#include <limits>
+#include <cassert>
 
 static inline uint32_t nextPow2(uint32_t v)
 {
@@ -40,14 +42,24 @@ SVO::SVO(const std::vector<uint8_t>& grid,
     uint32_t maxDim = std::max({ originalGridSize.x, originalGridSize.y, originalGridSize.z });
     uint32_t cubeDim = nextPow2(maxDim);
     paddedGridSize = glm::uvec3(cubeDim);
-    // after paddedGridSize is computed:
-    voxelSize = (worldUpper - worldLower) / glm::vec3(paddedGridSize); // important: use paddedGridSize
 
+    // voxelSize measured in padded voxels -> world tiling aligns with padded coords
+    voxelSize = (worldUpper - worldLower) / glm::vec3(paddedGridSize);
 
+    // compute levels
     levels = 0;
     uint32_t tmp = cubeDim;
     while(tmp > 1u) { tmp >>= 1u; ++levels; }
-    ++levels;
+    ++levels; // now levels is such that level index runs 0..levels-1 and top has size cubeDim/(1<<top) == 1
+
+    // compute brick leaf level (level index where a node covers BRICK_SIZE^3 padded voxels)
+    // level==0 -> node covers 1 voxel. So leafLevel = log2(BRICK_SIZE)
+    int blk = BRICK_SIZE;
+    leafLevel = 0;
+    while((1 << leafLevel) < blk) ++leafLevel;
+    assert((1 << leafLevel) == BRICK_SIZE && "BRICK_SIZE must be a power of two");
+    // sanity: leafLevel must be <= levels-1
+    if(leafLevel > levels - 1) leafLevel = levels - 1;
 
     buildTree();
     flattenTree();
@@ -58,95 +70,173 @@ void SVO::buildTree()
     using NodeMap = std::map<glm::uvec3, uint32_t, UVec3Comparator>;
     std::vector<NodeMap> levelMaps(levels);
 
-    // --- Level 0: leaves on the padded domain ---
+    // Reserve some memory heuristically
+    nodes.reserve(1024);
+    bricks.reserve(1024);
+
+    // --- Create brick nodes at leafLevel (sweep bricks over padded domain) ---
     glm::uvec3 padded = paddedGridSize;
-    for (uint32_t z = 0; z < padded.z; ++z) {
-        for (uint32_t y = 0; y < padded.y; ++y) {
-            for (uint32_t x = 0; x < padded.x; ++x) {
-                glm::uvec3 coord(x, y, z);
-                uint8_t val = 0;
-                if (x < originalGridSize.x && y < originalGridSize.y && z < originalGridSize.z) {
-                    val = voxelValue(coord);
+    glm::uvec3 brickGrid = glm::uvec3(padded.x / BRICK_SIZE, padded.y / BRICK_SIZE, padded.z / BRICK_SIZE);
+
+    for(uint32_t bz = 0; bz < brickGrid.z; ++bz)
+        for(uint32_t by = 0; by < brickGrid.y; ++by)
+            for(uint32_t bx = 0; bx < brickGrid.x; ++bx)
+            {
+                glm::uvec3 brickCoord(bx, by, bz);     // coord at level = leafLevel
+                glm::uvec3 baseVoxel = brickCoord * glm::uvec3(BRICK_SIZE); // top-left-back voxel (padded-space)
+
+                Brick b;
+                bool anyNonZero = false;
+                bool mono = true;
+                uint8_t monoColor = 0;
+                bool firstFound = false;
+
+                // fill brick
+                for(int zz = 0; zz < BRICK_SIZE; ++zz)
+                    for(int yy = 0; yy < BRICK_SIZE; ++yy)
+                        for(int xx = 0; xx < BRICK_SIZE; ++xx)
+                        {
+                            glm::uvec3 v = baseVoxel + glm::uvec3((uint32_t)xx, (uint32_t)yy, (uint32_t)zz);
+                            uint8_t val = 0;
+                            if(v.x < originalGridSize.x && v.y < originalGridSize.y && v.z < originalGridSize.z) {
+                                val = voxelValue(v);
+                            }
+                            else {
+                                val = 0;
+                            }
+                            b.voxels[xx + BRICK_SIZE * (yy + BRICK_SIZE * zz)] = val;
+                            if(val != 0) {
+                                anyNonZero = true;
+                                if(!firstFound) { monoColor = val; firstFound = true; }
+                                else if(mono && val != monoColor) mono = false;
+                            }
+                        }
+
+                if(!anyNonZero) {
+                    continue; // skip empty bricks
                 }
-                if (val != 0u) {
-                    nodes.emplace_back(0, coord, val);
-                    levelMaps[0][coord] = static_cast<uint32_t>(nodes.size() - 1);
+
+                // If brick is mono-color, we will not store the brick data; instead create a mono-color node
+                // TOOO: Brick collapsing is buggy too
+                mono = false;
+                if(mono) {
+                    nodes.emplace_back(leafLevel, brickCoord, monoColor);
+                    uint32_t nodeIdx = static_cast<uint32_t>(nodes.size() - 1);
+                    nodes[nodeIdx].brickIndex = -1; // no brick store (mono color)
+                    levelMaps[leafLevel][brickCoord] = nodeIdx;
+                }
+                else {
+                    // store the brick and create a node referencing it
+                    bricks.push_back(b);
+                    nodes.emplace_back(leafLevel, brickCoord, 0u);
+                    uint32_t nodeIdx = static_cast<uint32_t>(nodes.size() - 1);
+                    nodes[nodeIdx].brickIndex = static_cast<int32_t>(bricks.size() - 1);
+                    // color can be majority color if you like
+                    std::array<int, 256> counts; counts.fill(0);
+                    for(auto c : b.voxels) if(c) counts[c]++;
+                    int best = 0; uint8_t bestColor = 0;
+                    for(int i = 0; i < 256; ++i) if(counts[i] > best) { best = counts[i]; bestColor = (uint8_t)i; }
+                    nodes[nodeIdx].color = bestColor;
+                    levelMaps[leafLevel][brickCoord] = nodeIdx;
                 }
             }
-        }
-    }
 
-    // --- Build upper levels from existing children only (sparse) ---
-    for (int L = 1; L < levels; ++L) {
-        // First pass: collect all parent coordinates and their children
-        std::map<glm::uvec3, std::vector<uint32_t>, UVec3Comparator> parentChildrenMap;
-        
-        for (const auto& entry : levelMaps[L - 1]) {
+    // --- Build upper levels sparsely from level = leafLevel+1 .. levels-1 ---
+    for(int L = leafLevel + 1; L < levels; ++L) {
+        // snapshot child entries to avoid invalidation issues
+        std::vector<std::pair<glm::uvec3, uint32_t>> childEntries;
+        childEntries.reserve(levelMaps[L - 1].size());
+        for(const auto& e : levelMaps[L - 1]) childEntries.push_back(e);
+
+        // collect children per parent coordinate
+        std::map<glm::uvec3, std::vector<uint32_t>, UVec3Comparator> parentChildren;
+        for(const auto& entry : childEntries) {
+            glm::uvec3 childCoord = entry.first;      // coord at level L-1
             uint32_t childIdx = entry.second;
-            // Store the child index for later processing
-            const Node& child = nodes[childIdx];
-            glm::uvec3 parentCoord = child.coord >> 1u;
-            parentChildrenMap[parentCoord].push_back(childIdx);
+            glm::uvec3 parentCoord = childCoord >> 1u; // coord at level L
+            parentChildren[parentCoord].push_back(childIdx);
         }
 
-        // Second pass: create parent nodes and link children
-        for (const auto& entry : parentChildrenMap) {
-            const glm::uvec3& parentCoord = entry.first;
-            const std::vector<uint32_t>& childrenIndices = entry.second;
+        // create parents
+        for(auto& pc : parentChildren) {
+            glm::uvec3 parentCoord = pc.first;
+            const std::vector<uint32_t>& childrenIdx = pc.second;
 
-            // Create parent node
             nodes.emplace_back(L, parentCoord, 0u);
             uint32_t parentIdx = static_cast<uint32_t>(nodes.size() - 1);
             levelMaps[L][parentCoord] = parentIdx;
             Node& parent = nodes[parentIdx];
 
-            // Link children to parent
-            for (uint32_t childIdx : childrenIndices) {
-                const Node& child = nodes[childIdx];
-                glm::uvec3 childOffset = child.coord & glm::uvec3(1u);
+            // link explicit children
+            for(uint32_t childIdx : childrenIdx) {
+                Node& child = nodes[childIdx];
+                // childCoord at level L-1:
+                glm::uvec3 childCoord = glm::uvec3(child.coord);
+                glm::uvec3 childOffset = childCoord & glm::uvec3(1u); // low bits
                 uint32_t childSlot = childOffset.x | (childOffset.y << 1u) | (childOffset.z << 2u);
-
-                parent.childrenMask |= (1u << childSlot);
                 parent.children[childSlot] = static_cast<int32_t>(childIdx);
-                nodes[childIdx].parentIndex = static_cast<int32_t>(parentIdx);
+                parent.childrenMask |= (1u << childSlot);
+                child.parentIndex = static_cast<int32_t>(parentIdx);
             }
-        }
 
-        // Compute parent colors
-        for (const auto& entry : levelMaps[L]) {
-            uint32_t pIdx = entry.second;
-            Node& p = nodes[pIdx];
+            // compute parent color and attempt collapse:
+            // If all 8 children exist and all have same color and none are mixed bricks (brickIndex != -1),
+            // collapse into parent mono-color (do not keep children)
+            bool allPresent = true;
+            bool allSameColor = true;
+            uint8_t firstColor = 0;
+            bool firstSet = false;
+            bool anyChildHasBrick = false;
+            for(int i = 0; i < 8; ++i) {
+                int32_t cidx = parent.children[i];
+                if(cidx < 0) { allPresent = false; break; }
+                const Node& c = nodes[cidx];
+                if(c.brickIndex != -1) anyChildHasBrick = true;
+                if(!firstSet) { firstColor = c.color; firstSet = true; }
+                else if(c.color != firstColor) allSameColor = false;
+            }
 
-            std::array<int, 256> counts;
-            counts.fill(0);
-            for (int i = 0; i < 8; ++i) {
-                int32_t cidx = p.children[i];
-                if (cidx >= 0) {
-                    counts[nodes[cidx].color]++;
-                }
+            // TODO: Collapsing logic is buggy
+            bool collapse = allPresent&& allSameColor && !anyChildHasBrick;
+            collapse = false;
+            if(collapse) 
+            {
+                // collapse: mark parent as leaf with color and sever children (we don't reclaim memory)
+                parent.color = firstColor;
+                parent.childrenMask = 0;
+                for(int i = 0; i < 8; ++i) parent.children[i] = -1;
             }
-            int best = 0;
-            uint8_t bestColor = 0;
-            for (int c = 0; c < 256; ++c) {
-                if (counts[c] > best) {
-                    best = counts[c];
-                    bestColor = static_cast<uint8_t>(c);
+            else 
+            {
+                // majority color fallback
+                std::array<int, 256> counts; counts.fill(0);
+                for(int i = 0; i < 8; ++i) {
+                    int32_t cidx = parent.children[i];
+                    if(cidx >= 0) counts[nodes[cidx].color]++;
                 }
+                int best = 0; uint8_t bestColor = 0;
+                for(int c = 0; c < 256; ++c) if(counts[c] > best) { best = counts[c]; bestColor = static_cast<uint8_t>(c); }
+                parent.color = bestColor;
             }
-            p.color = bestColor;
         }
     }
-}
 
+    // done building nodes (sparse). nodes[] contains leaf bricks (or mono-color bricks) and parents up to root.
+}
 
 void SVO::flattenTree()
 {
     flatNodesGPU.clear();
-    flatNodesGPU.reserve(nodes.size()); // rough reserve
+    flatNodesGPU.reserve(nodes.size());
 
-    std::function<void(int32_t)> flatten = [&](int32_t nIdx) {
-        if(nIdx < 0 || nIdx >= (int32_t)nodes.size()) return;
-        Node& n = nodes[nIdx];
+    // simple DFS from root candidates (parentIndex == -1)
+    std::vector<int32_t> roots;
+    roots.reserve(32);
+    for(size_t i = 0; i < nodes.size(); ++i) if(nodes[i].parentIndex == -1) roots.push_back((int32_t)i);
+
+    std::function<void(int32_t)> dfs = [&](int32_t idx) {
+        if(idx < 0) return;
+        Node& n = nodes[idx];
 
         glm::vec3 mn, mx;
         computeWorldAABB(n, mn, mx);
@@ -156,52 +246,56 @@ void SVO::flattenTree()
         gn.upperCorner = mx;
         gn.colorIndex = n.color;
         gn.level = n.level;
+        gn.brickIndex = (n.brickIndex >= 0) ? static_cast<uint32_t>(n.brickIndex) : UINT32_MAX;
 
         n.flatIndex = static_cast<int32_t>(flatNodesGPU.size());
         flatNodesGPU.push_back(gn);
 
-        // traverse children in canonical order 0..7
+        // traverse children in canonical order
         for(int i = 0; i < 8; ++i) {
             int32_t c = n.children[i];
-            if(c >= 0) flatten(c);
+            if(c >= 0) dfs(c);
         }
         };
 
-    // find root candidates (nodes without parent)
-    for(size_t i = 0; i < nodes.size(); ++i) {
-        if(nodes[i].parentIndex == -1) {
-            flatten(static_cast<int32_t>(i));
-        }
-    }
+    for(int32_t r : roots) dfs(r);
 }
-
 
 void SVO::computeWorldAABB(const Node& node, glm::vec3& outMin, glm::vec3& outMax) const
 {
-    // node.coord is an index in the padded grid at this node.level.
-    // nodeSize = size of a node at level expressed in padded voxels * voxelSize
     float scale = static_cast<float>(1u << node.level); // how many padded voxels per node side
-    glm::vec3 nodeSize = voxelSize * scale; // voxelSize computed with paddedGridSize
+    glm::vec3 nodeSize = voxelSize * scale;
     outMin = worldLower + glm::vec3(node.coord) * nodeSize;
     outMax = outMin + nodeSize;
-
-    // clamp to original world bounds to avoid extending into padded empty space
     outMin = glm::max(outMin, worldLower);
     outMax = glm::min(outMax, worldUpper);
 }
 
-
 std::vector<uint32_t> SVO::selectNodes(const glm::vec3& cameraPos, float lodBaseDist) const
 {
     std::vector<uint32_t> result;
-    result.reserve(1024);
+    result.reserve(512);
 
-    std::function<void(int32_t)> selectRec = [&](int32_t nIdx) {
-        if(nIdx < 0 || nIdx >= (int32_t)nodes.size()) return;
-        const Node& n = nodes[nIdx];
+    // iterative stack traversal starting at roots
+    std::vector<int32_t> stack;
+    for(size_t i = 0; i < nodes.size(); ++i) {
+        if(nodes[i].parentIndex == -1) stack.push_back((int32_t)i);
+    }
+
+    while(!stack.empty()) {
+        int32_t nodeIdx = stack.back();
+        stack.pop_back();
+        const Node& n = nodes[nodeIdx];
 
         glm::vec3 mn, mx;
-        computeWorldAABB(n, mn, mx);
+        // compute aabb
+        float scale = static_cast<float>(1u << n.level);
+        glm::vec3 nodeSize = voxelSize * scale;
+        mn = worldLower + glm::vec3(n.coord) * nodeSize;
+        mx = mn + nodeSize;
+        mn = glm::max(mn, worldLower);
+        mx = glm::min(mx, worldUpper);
+
         glm::vec3 center = (mn + mx) * 0.5f;
         float dist = glm::length(cameraPos - center);
         glm::vec3 ext = mx - mn;
@@ -209,34 +303,24 @@ std::vector<uint32_t> SVO::selectNodes(const glm::vec3& cameraPos, float lodBase
 
         if(n.level == 0 || dist > lodBaseDist * nodeExtent) {
             if(n.flatIndex >= 0) result.push_back(static_cast<uint32_t>(n.flatIndex));
-            return;
         }
-
-        // descend
-        for(int i = 0; i < 8; ++i) {
-            int32_t c = n.children[i];
-            if(c >= 0) selectRec(c);
+        else {
+            // descend children
+            for(int i = 0; i < 8; ++i) {
+                int32_t c = n.children[i];
+                if(c >= 0) stack.push_back(c);
+            }
         }
-        };
-
-    // start from roots
-    for(size_t i = 0; i < nodes.size(); ++i) {
-        if(nodes[i].parentIndex == -1) selectRec(static_cast<int32_t>(i));
     }
 
     return result;
 }
 
-
 size_t SVO::estimateMemoryUsageBytes() const
 {
     size_t memory = 0;
-
-    // Node memory
     memory += nodes.size() * sizeof(Node);
-
-    // GPU nodes memory
     memory += flatNodesGPU.size() * sizeof(SVONodeGPU);
-
+    memory += bricks.size() * sizeof(Brick);
     return memory;
 }

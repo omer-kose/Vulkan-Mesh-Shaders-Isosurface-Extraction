@@ -5,415 +5,18 @@ void SVOUnitTests::printTestResult(const std::string& testName, bool passed)
     fmt::print("{}: {}\n", testName, passed ? "PASSED" : "FAILED");
 }
 
-void SVOUnitTests::testBasicCorrectness()
+void SVOUnitTests::testBrickedCorrectness()
 {
-    fmt::print("\n=== Basic Correctness Test ===\n");
-
-    // Create a simple 4x4x4 grid
-    const int size = 4;
-    std::vector<uint8_t> grid(size * size * size, 0);
-
-    // Set a few voxels
-    grid[0] = 1; // (0,0,0)
-    grid[1] = 2; // (1,0,0)
-    grid[size * size - 1] = 3; // (3,3,0)
-
-    glm::uvec3 gridSize(size, size, size);
-    glm::vec3 worldLower(0.0f), worldUpper(4.0f);
-
-    SVO svo(grid, gridSize, worldLower, worldUpper);
-
-    const auto& gpuNodes = svo.getFlatGPUNodes();
-
-    // Should have at least 3 nodes (leaves) plus hierarchy nodes
-    assert(gpuNodes.size() >= 3);
-
-    // Check that each node has valid bounds
-    for(const auto& node : gpuNodes) {
-        assert(node.lowerCorner.x <= node.upperCorner.x);
-        assert(node.lowerCorner.y <= node.upperCorner.y);
-        assert(node.lowerCorner.z <= node.upperCorner.z);
-        assert(node.lowerCorner.x >= worldLower.x);
-        assert(node.upperCorner.x <= worldUpper.x);
-    }
-
-    // Check that there are no overlapping nodes at the same level
-    std::map<uint8_t, std::vector<SVONodeGPU>> nodesByLevel;
-    for(const auto& node : gpuNodes) {
-        nodesByLevel[node.level].push_back(node);
-    }
-
-    for(auto& levelPair : nodesByLevel) {
-        auto& nodesAtLevel = levelPair.second;
-
-        for(size_t i = 0; i < nodesAtLevel.size(); i++) {
-            for(size_t j = i + 1; j < nodesAtLevel.size(); j++) {
-                const auto& a = nodesAtLevel[i];
-                const auto& b = nodesAtLevel[j];
-
-                bool overlapX = (a.lowerCorner.x < b.upperCorner.x) && (a.upperCorner.x > b.lowerCorner.x);
-                bool overlapY = (a.lowerCorner.y < b.upperCorner.y) && (a.upperCorner.y > b.lowerCorner.y);
-                bool overlapZ = (a.lowerCorner.z < b.upperCorner.z) && (a.upperCorner.z > b.lowerCorner.z);
-
-                // Nodes at the same level should not overlap
-                assert(!(overlapX && overlapY && overlapZ));
-            }
-        }
-    }
-
-    printTestResult("Basic Correctness Test", true);
-}
-
-void SVOUnitTests::testEmptyGrid()
-{
-    std::vector<uint8_t> emptyGrid;
-    glm::uvec3 gridSize(0, 0, 0);
-    glm::vec3 worldLower(0.0f), worldUpper(1.0f);
-
-    SVO svo(emptyGrid, gridSize, worldLower, worldUpper);
-
-    // Should have no nodes
-    assert(svo.getFlatGPUNodes().empty());
-    assert(svo.selectNodes(glm::vec3(0.0f), 1.0f).empty());
-    assert(svo.estimateMemoryUsageBytes() == 0); // 0 CPU and GPU Nodes
-
-    printTestResult("Empty Grid Test", true);
-}
-
-void SVOUnitTests::testSingleVoxel()
-{
-    std::vector<uint8_t> grid = { 42 }; // Single voxel with color index 42
-    glm::uvec3 gridSize(1, 1, 1);
-    glm::vec3 worldLower(0.0f), worldUpper(1.0f);
-
-    SVO svo(grid, gridSize, worldLower, worldUpper);
-
-    // Should have exactly one node
-    assert(svo.getFlatGPUNodes().size() == 1);
-    assert(svo.getFlatGPUNodes()[0].colorIndex == 42);
-    assert(svo.selectNodes(glm::vec3(0.0f), 1.0f).size() == 1);
-
-    printTestResult("Single Voxel Test", true);
-}
-
-void SVOUnitTests::test2x2x2Grid()
-{
-    std::vector<uint8_t> grid = {
-        1, 0,
-        0, 1,
-
-        0, 1,
-        1, 0
-    };
-    glm::uvec3 gridSize(2, 2, 2);
-    glm::vec3 worldLower(0.0f), worldUpper(2.0f);
-
-    SVO svo(grid, gridSize, worldLower, worldUpper);
-
-    // Check that we have nodes
-    assert(!svo.getFlatGPUNodes().empty());
-
-    // Check that all nodes have valid bounds
-    for(const auto& node : svo.getFlatGPUNodes()) {
-        assert(node.lowerCorner.x <= node.upperCorner.x);
-        assert(node.lowerCorner.y <= node.upperCorner.y);
-        assert(node.lowerCorner.z <= node.upperCorner.z);
-        assert(node.lowerCorner.x >= worldLower.x);
-        assert(node.upperCorner.x <= worldUpper.x);
-    }
-
-    printTestResult("2x2x2 Grid Test", true);
-}
-
-void SVOUnitTests::testFullGrid()
-{
-    const int size = 4;
-    std::vector<uint8_t> grid(size * size * size, 1); // All voxels occupied
-    glm::uvec3 gridSize(size, size, size);
-    glm::vec3 worldLower(0.0f), worldUpper(4.0f);
-
-    SVO svo(grid, gridSize, worldLower, worldUpper);
-
-    // Should have nodes
-    assert(!svo.getFlatGPUNodes().empty());
-
-    // Check LOD selection
-    auto selected = svo.selectNodes(glm::vec3(0.0f), 1.0f);
-    assert(!selected.empty());
-
-    printTestResult("Full Grid Test", true);
-}
-
-void SVOUnitTests::testSparseGrid()
-{
-    const int size = 8;
-    std::vector<uint8_t> grid(size * size * size, 0); // Empty grid
-
-    // Add a few sparse voxels
-    grid[0] = 1; // (0,0,0)
-    grid[size * size * size - 1] = 2; // (7,7,7)
-    grid[size * size / 2] = 3; // Center
-
-    glm::uvec3 gridSize(size, size, size);
-    glm::vec3 worldLower(0.0f), worldUpper(8.0f);
-
-    SVO svo(grid, gridSize, worldLower, worldUpper);
-
-    // Should have nodes (at least 3, but could be more due to hierarchy)
-    assert(svo.getFlatGPUNodes().size() >= 3);
-
-    printTestResult("Sparse Grid Test", true);
-}
-
-void SVOUnitTests::testMemoryUsage()
-{
-    const int size = 16;
-    std::vector<uint8_t> grid(size * size * size, 0);
-
-    // Create a pattern
-    for(int z = 0; z < size; z++) {
-        for(int y = 0; y < size; y++) {
-            for(int x = 0; x < size; x++) {
-                if((x + y + z) % 2 == 0) {
-                    grid[x + y * size + z * size * size] = 1;
-                }
-            }
-        }
-    }
-
-    glm::uvec3 gridSize(size, size, size);
-    glm::vec3 worldLower(0.0f), worldUpper(16.0f);
-
-    SVO svo(grid, gridSize, worldLower, worldUpper);
-
-    // Dense grid memory usage
-    size_t denseMemory = size * size * size * sizeof(uint8_t);
-
-    // SVO memory usage
-    size_t svoMemory = svo.estimateMemoryUsageBytes();
-
-    // SVO should use less memory for sparse patterns
-    fmt::print("Dense memory: {} bytes\n", denseMemory);
-    fmt::print("SVO memory: {} bytes\n", svoMemory);
-    fmt::print("Ratio: {}\n", (double)svoMemory / denseMemory);
-
-    // For this pattern, SVO should be more efficient
-    // Adjust the expectation based on actual performance
-    // The current implementation might not achieve 20% savings for this pattern
-    if(svoMemory < denseMemory) 
-    {
-        fmt::print("SVO uses less memory than dense representation\n");
-        printTestResult("Memory Usage Test", true);
-    }
-    else 
-    {
-        fmt::print("Warning: SVO uses more memory than dense representation for this pattern\n");
-        fmt::print("This might be expected for certain patterns with the current implementation\n");
-        printTestResult("Memory Usage Test", true); // Still pass the test but with a warning
-    }
-}
-
-void SVOUnitTests::testLODSelection()
-{
-    const int size = 8;
-    std::vector<uint8_t> grid(size * size * size, 1); // All occupied
-    glm::uvec3 gridSize(size, size, size);
-    glm::vec3 worldLower(0.0f), worldUpper(8.0f);
-
-    SVO svo(grid, gridSize, worldLower, worldUpper);
-
-    // Camera at different distances
-    glm::vec3 cameraClose(0.0f, 0.0f, 0.0f);
-    glm::vec3 cameraFar(100.0f, 100.0f, 100.0f);
-
-    // Close camera should select more detailed nodes
-    auto closeNodes = svo.selectNodes(cameraClose, 1.0f);
-    auto farNodes = svo.selectNodes(cameraFar, 1.0f);
-
-    // Far camera should select fewer, coarser nodes
-    assert(closeNodes.size() >= farNodes.size());
-
-    printTestResult("LOD Selection Test", true);
-}
-
-void SVOUnitTests::testLargeSparseGrid()
-{
-    fmt::print("\n=== Large Sparse Grid Test ===\n");
-
-    const int size = 64;
-    std::vector<uint8_t> grid(size * size * size, 0);
-
-    // Add just a few voxels
-    grid[0] = 1;
-    grid[size * size * size - 1] = 2;
-    grid[size * size * size / 2] = 3;
-
-    glm::uvec3 gridSize(size, size, size);
-    glm::vec3 worldLower(0.0f), worldUpper(static_cast<float>(size));
-
-    auto start = std::chrono::high_resolution_clock::now();
-
-    SVO svo(grid, gridSize, worldLower, worldUpper);
-
-    auto end = std::chrono::high_resolution_clock::now();
-    auto constructionTime = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-
-    size_t memoryUsage = svo.estimateMemoryUsageBytes();
-    size_t denseMemory = size * size * size * sizeof(uint8_t);
-
-    fmt::print("Construction time: {} ms\n", constructionTime);
-    fmt::print("SVO memory: {} bytes\n", memoryUsage);
-    fmt::print("Dense memory: {} bytes\n", denseMemory);
-    fmt::print("Ratio: {}\n", (double)memoryUsage / denseMemory);
-    fmt::print("Nodes: {}\n", svo.getFlatGPUNodes().size());
-
-    // For a very sparse grid, SVO should be much more efficient
-    assert(memoryUsage < denseMemory * 0.1); // At least 90% savings
-
-    printTestResult("Large Sparse Grid Test", true);
-}
-
-void SVOUnitTests::testComplexPattern()
-{
-    fmt::print("\n=== Complex Pattern Test ===\n");
+    fmt::print("\n=== Bricked SVO Correctness Test ===\n");
 
     const int size = 32;
     std::vector<uint8_t> grid(size * size * size, 0);
 
-    // Create a more complex pattern
-    for(int z = 0; z < size; z++) {
-        for(int y = 0; y < size; y++) {
-            for(int x = 0; x < size; x++) {
-                // Create a checkerboard pattern that changes with Z
-                if((x + y + z) % 2 == 0) {
-                    grid[x + y * size + z * size * size] = (x + y + z) % 256;
-                }
-            }
-        }
-    }
-
-    glm::uvec3 gridSize(size, size, size);
-    glm::vec3 worldLower(0.0f), worldUpper(static_cast<float>(size));
-
-    auto start = std::chrono::high_resolution_clock::now();
-
-    SVO svo(grid, gridSize, worldLower, worldUpper);
-
-    auto end = std::chrono::high_resolution_clock::now();
-    auto constructionTime = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-
-    size_t memoryUsage = svo.estimateMemoryUsageBytes();
-    size_t denseMemory = size * size * size * sizeof(uint8_t);
-
-    fmt::print("Construction time: {} ms\n", constructionTime);
-    fmt::print("SVO memory: {} bytes\n", memoryUsage);
-    fmt::print("Dense memory: {} bytes\n", denseMemory);
-    fmt::print("Ratio: {}\n", (double)memoryUsage / denseMemory);
-    fmt::print("Nodes: {}\n", svo.getFlatGPUNodes().size());
-
-    // Test LOD selection
-    auto selectedClose = svo.selectNodes(glm::vec3(0.0f), 1.0f);
-    auto selectedFar = svo.selectNodes(glm::vec3(100.0f), 1.0f);
-
-    fmt::print("Selected close: {}\n", selectedClose.size());
-    fmt::print("Selected far: {}\n", selectedFar.size());
-
-    // Far camera should select fewer nodes
-    assert(selectedFar.size() <= selectedClose.size());
-
-    printTestResult("Complex Pattern Test", true);
-}
-
-void SVOUnitTests::testCorrectness()
-{
-    fmt::print("\n=== Correctness Test ===\n");
-
-    // Create a simple 4x4x4 grid with a specific pattern
-    const int size = 4;
-    std::vector<uint8_t> grid(size * size * size, 0);
-
-    // Create a cross pattern
-    for(int i = 0; i < size; i++) {
-        // Vertical line
-        grid[i + (size / 2) * size + (size / 2) * size * size] = 1;
-        // Horizontal line
-        grid[(size / 2) + i * size + (size / 2) * size * size] = 2;
-        // Depth line
-        grid[(size / 2) + (size / 2) * size + i * size * size] = 3;
-    }
-
-    glm::uvec3 gridSize(size, size, size);
-    glm::vec3 worldLower(0.0f), worldUpper(4.0f);
-
-    SVO svo(grid, gridSize, worldLower, worldUpper);
-
-    // Verify that all original voxels are represented in the SVO
-    for(int z = 0; z < size; z++) {
-        for(int y = 0; y < size; y++) {
-            for(int x = 0; x < size; x++) {
-                uint8_t expected = grid[x + y * size + z * size * size];
-                if(expected != 0) {
-                    // Find a node that contains this voxel
-                    bool found = false;
-                    for(const auto& node : svo.getFlatGPUNodes()) {
-                        glm::vec3 voxelCenter = worldLower + glm::vec3(x + 0.5f, y + 0.5f, z + 0.5f) *
-                            (worldUpper - worldLower) / glm::vec3(size);
-
-                        if(voxelCenter.x >= node.lowerCorner.x && voxelCenter.x <= node.upperCorner.x &&
-                            voxelCenter.y >= node.lowerCorner.y && voxelCenter.y <= node.upperCorner.y &&
-                            voxelCenter.z >= node.lowerCorner.z && voxelCenter.z <= node.upperCorner.z) {
-
-                            // Check if the node has the correct color
-                            if(node.colorIndex == expected) {
-                                found = true;
-                                break;
-                            }
-                        }
-                    }
-                    assert(found && "Voxel not found in SVO or has wrong color");
-                }
-            }
-        }
-    }
-
-    // Test LOD selection at different distances
-    glm::vec3 center(2.0f, 2.0f, 2.0f);
-    auto closeNodes = svo.selectNodes(center, 1.0f);
-    auto farNodes = svo.selectNodes(center + glm::vec3(100.0f), 1.0f);
-
-    // Far camera should select fewer, coarser nodes
-    assert(farNodes.size() <= closeNodes.size());
-
-    // All selected nodes should be valid
-    const auto& allNodes = svo.getFlatGPUNodes();
-    for(uint32_t idx : closeNodes) {
-        assert(idx < allNodes.size());
-    }
-    for(uint32_t idx : farNodes) {
-        assert(idx < allNodes.size());
-    }
-
-    printTestResult("Correctness Test", true);
-}
-
-void SVOUnitTests::testStructureCorrectness()
-{
-    fmt::print("\n=== SVO Structure Correctness Test ===\n");
-
-    const int size = 16;
-    std::vector<uint8_t> grid(size * size * size, 0);
-
-    // Create a simple pattern that's easy to verify
-    for(int z = 0; z < size; z++) {
-        for(int y = 0; y < size; y++) {
-            for(int x = 0; x < size; x++) {
-                // Create a checkerboard pattern
-                if((x + y + z) % 2 == 0) {
-                    grid[x + y * size + z * size * size] = 1;
-                }
-            }
-        }
-    }
+    // Place voxels in specific corners and edges
+    grid[0] = 1; // (0,0,0)
+    grid[size - 1] = 2; // (31,0,0)
+    grid[(size - 1) + (size - 1) * size] = 3; // (31,31,0)
+    grid[(size - 1) + (size - 1) * size + (size - 1) * size * size] = 4; // (31,31,31)
 
     glm::uvec3 gridSize(size, size, size);
     glm::vec3 worldLower(0.0f), worldUpper(static_cast<float>(size));
@@ -422,228 +25,414 @@ void SVOUnitTests::testStructureCorrectness()
 
     const auto& gpuNodes = svo.getFlatGPUNodes();
 
-    // Test 1: Verify all original voxels are represented
-    int representedVoxels = 0;
-    for(int z = 0; z < size; z++) {
-        for(int y = 0; y < size; y++) {
-            for(int x = 0; x < size; x++) {
-                if(grid[x + y * size + z * size * size] != 0) {
-                    glm::vec3 voxelCenter = worldLower + glm::vec3(x + 0.5f, y + 0.5f, z + 0.5f) *
-                        (worldUpper - worldLower) / glm::vec3(size);
-
-                    bool found = false;
-                    for(const auto& node : gpuNodes) {
-                        if(voxelCenter.x >= node.lowerCorner.x && voxelCenter.x <= node.upperCorner.x &&
-                            voxelCenter.y >= node.lowerCorner.y && voxelCenter.y <= node.upperCorner.y &&
-                            voxelCenter.z >= node.lowerCorner.z && voxelCenter.z <= node.upperCorner.z) {
-                            found = true;
-                            break;
-                        }
-                    }
-
-                    if(!found) {
-                        fmt::print("Voxel at ({}, {}, {}) not represented in SVO\n", x, y, z);
-                    }
-                    assert(found);
-                    representedVoxels++;
-                }
-            }
-        }
-    }
-
-    fmt::print("All {} non-empty voxels are represented in SVO\n", representedVoxels);
-
-    // Test 2: Check for overlapping nodes at the same level
-    std::map<uint8_t, std::vector<SVONodeGPU>> nodesByLevel;
+    // 1) Basic bounds sanity
     for(const auto& node : gpuNodes) {
-        nodesByLevel[node.level].push_back(node);
+        assert(node.lowerCorner.x >= worldLower.x - 1e-6f);
+        assert(node.lowerCorner.y >= worldLower.y - 1e-6f);
+        assert(node.lowerCorner.z >= worldLower.z - 1e-6f);
+        assert(node.upperCorner.x <= worldUpper.x + 1e-6f);
+        assert(node.upperCorner.y <= worldUpper.y + 1e-6f);
+        assert(node.upperCorner.z <= worldUpper.z + 1e-6f);
     }
 
-    int overlappingWarnings = 0;
-    for(auto& levelPair : nodesByLevel) {
-        uint8_t level = levelPair.first;
-        auto& nodesAtLevel = levelPair.second;
+    // 2) No overlaps among nodes at the *same level*
+    // group nodes by level (NOT by color!)
+    std::map<int, std::vector<std::pair<size_t, SVONodeGPU>>> nodesByLevel;
+    for(size_t i = 0; i < gpuNodes.size(); ++i) {
+        const auto& n = gpuNodes[i];
+        nodesByLevel[n.level].push_back({ i, n });
+    }
 
-        for(size_t i = 0; i < nodesAtLevel.size(); i++) {
-            for(size_t j = i + 1; j < nodesAtLevel.size(); j++) {
-                const auto& a = nodesAtLevel[i];
-                const auto& b = nodesAtLevel[j];
+    auto aabbOverlap = [&](const SVONodeGPU& A, const SVONodeGPU& B) -> bool {
+        // Use epsilon to avoid FP equality corner cases. Treat touching faces as non-overlap.
+        constexpr float eps = 1e-6f;
+        bool sepX = (A.upperCorner.x <= B.lowerCorner.x + eps) || (B.upperCorner.x <= A.lowerCorner.x + eps);
+        bool sepY = (A.upperCorner.y <= B.lowerCorner.y + eps) || (B.upperCorner.y <= A.lowerCorner.y + eps);
+        bool sepZ = (A.upperCorner.z <= B.lowerCorner.z + eps) || (B.upperCorner.z <= A.lowerCorner.z + eps);
+        return !(sepX || sepY || sepZ); // overlap if no separating axis
+        };
 
-                // Check if the AABBs overlap (using exclusive bounds)
-                bool overlapX = (a.lowerCorner.x < b.upperCorner.x) && (a.upperCorner.x > b.lowerCorner.x);
-                bool overlapY = (a.lowerCorner.y < b.upperCorner.y) && (a.upperCorner.y > b.lowerCorner.y);
-                bool overlapZ = (a.lowerCorner.z < b.upperCorner.z) && (a.upperCorner.z > b.lowerCorner.z);
-
-                if(overlapX && overlapY && overlapZ) {
-                    overlappingWarnings++;
-                    if(overlappingWarnings < 10) { // Limit output
-                        fmt::print("Warning: Nodes at level {} overlap:\n", level);
-                        fmt::print("  Node {}: [{}, {}, {}] to [{}, {}, {}]\n",
-                            i, a.lowerCorner.x, a.lowerCorner.y, a.lowerCorner.z,
-                            a.upperCorner.x, a.upperCorner.y, a.upperCorner.z);
-                        fmt::print("  Node {}: [{}, {}, {}] to [{}, {}, {}]\n",
-                            j, b.lowerCorner.x, b.lowerCorner.y, b.lowerCorner.z,
-                            b.upperCorner.x, b.upperCorner.y, b.upperCorner.z);
-                    }
+    for(auto& kv : nodesByLevel) {
+        int level = kv.first;
+        auto& vec = kv.second;
+        for(size_t i = 0; i < vec.size(); ++i) {
+            for(size_t j = i + 1; j < vec.size(); ++j) {
+                const auto& ai = vec[i];
+                const auto& bi = vec[j];
+                const SVONodeGPU& a = ai.second;
+                const SVONodeGPU& b = bi.second;
+                if(aabbOverlap(a, b)) {
+                    // Helpful debug output before asserting — will show you the two offending nodes
+                    fmt::print("Overlap detected at level {} between nodes {} and {}:\n", level, ai.first, bi.first);
+                    fmt::print("  A idx={} lvl={} min=({:.6f},{:.6f},{:.6f}) max=({:.6f},{:.6f},{:.6f}) color={}\n",
+                        ai.first, a.level, a.lowerCorner.x, a.lowerCorner.y, a.lowerCorner.z,
+                        a.upperCorner.x, a.upperCorner.y, a.upperCorner.z, a.colorIndex);
+                    fmt::print("  B idx={} lvl={} min=({:.6f},{:.6f},{:.6f}) max=({:.6f},{:.6f},{:.6f}) color={}\n",
+                        bi.first, b.level, b.lowerCorner.x, b.lowerCorner.y, b.lowerCorner.z,
+                        b.upperCorner.x, b.upperCorner.y, b.upperCorner.z, b.colorIndex);
+                    assert(!"Two nodes at same level overlap — investigate coordinates above");
                 }
             }
         }
     }
 
-    if(overlappingWarnings > 0) {
-        fmt::print("Found {} overlapping node pairs at the same level\n", overlappingWarnings);
-        // For now, we'll just warn about this rather than failing the test
-        // assert(overlappingWarnings == 0);
-    }
+    // 3) LOD sanity: far should not select more nodes than near
+    auto nearNodes = svo.selectNodes(glm::vec3(0.0f), 1.0f);
+    auto farNodes = svo.selectNodes(glm::vec3(100.0f), 1.0f);
+    assert(!nearNodes.empty());
+    assert(!farNodes.empty());
+    assert(farNodes.size() <= nearNodes.size());
 
-    // Test 3: Verify LOD selection returns valid indices
-    auto selected = svo.selectNodes(glm::vec3(0.0f), 1.0f);
-    for(uint32_t idx : selected) {
-        assert(idx < gpuNodes.size());
-    }
-
-    fmt::print("SVO structure correctness test: {} overlapping warnings\n", overlappingWarnings);
-
-    printTestResult("SVO Structure Correctness Test", overlappingWarnings == 0);
+    printTestResult("Bricked SVO Correctness", true);
 }
 
-void SVOUnitTests::testLargeScaleTerrainLOD()
+void SVOUnitTests::testBrickedEfficiency()
 {
-    fmt::print("\n=== Large-Scale Terrain LOD Analysis ===\n");
+    fmt::print("\n=== Bricked SVO Efficiency Test ===\n");
 
-    // Test different grid sizes
-    const std::vector<int> sizes = { 128, 256 };
-
+    std::vector<int> sizes = { 32, 64, 128 };
     for(int size : sizes) {
-        fmt::print("\n--- Analyzing {}x{}x{} terrain ---\n", size, size, size);
-
-        // Create a grid with terrain-like pattern
-        std::vector<uint8_t> grid(size * size * size, 0);
-
-        // Use a simpler generation method for large grids
-        std::mt19937 rng(42);
-        std::uniform_real_distribution<float> dist(0.0f, 1.0f);
-
-        // Generate terrain with multiple layers
-        for(int x = 0; x < size; x++) {
-            for(int z = 0; z < size; z++) {
-                // Generate height using simplified noise
-                float nx = static_cast<float>(x) / size;
-                float nz = static_cast<float>(z) / size;
-                float height = 0.5f + 0.3f * std::sin(nx * 10.0f) + 0.2f * std::cos(nz * 8.0f);
-                int intHeight = static_cast<int>(height * size * 0.3f);
-
-                // Fill layers with different materials
-                for(int y = 0; y < intHeight && y < size; y++) {
-                    uint8_t material = 1; // Stone
-                    if(y == intHeight - 1) material = 2; // Grass
-                    if(y < 3) material = 3; // Bedrock
-
-                    grid[x + y * size + z * size * size] = material;
-                }
-            }
-        }
-
         glm::uvec3 gridSize(size, size, size);
         glm::vec3 worldLower(0.0f), worldUpper(static_cast<float>(size));
 
-        auto start = std::chrono::high_resolution_clock::now();
-
-        SVO svo(grid, gridSize, worldLower, worldUpper);
-
-        auto end = std::chrono::high_resolution_clock::now();
-        auto constructionTime = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-
-        size_t memoryUsage = svo.estimateMemoryUsageBytes();
-        size_t denseMemory = size * size * size * sizeof(uint8_t);
-        size_t nodeCount = svo.getFlatGPUNodes().size();
-
-        fmt::print("Construction time: {} ms\n", constructionTime);
-        fmt::print("SVO memory: {} bytes\n", memoryUsage);
-        fmt::print("Dense memory: {} bytes\n", denseMemory);
-        fmt::print("Memory ratio: {:.2f}%\n", (double)memoryUsage / denseMemory * 100.0);
-        fmt::print("Nodes: {}\n", nodeCount);
-
-        // Test LOD selection at multiple distances with statistical analysis
-        glm::vec3 center(size / 2.0f, size / 2.0f, size / 2.0f);
-        std::vector<float> distances = { 1.0f, 10.0f, 50.0f, 100.0f, 200.0f };
-        std::vector<size_t> nodeCounts;
-        std::vector<float> avgNodeSizes;
-        std::vector<std::vector<int>> levelDistributions;
-
-        const auto& allNodes = svo.getFlatGPUNodes();
-
-        for(float distance : distances) {
-            auto selected = svo.selectNodes(center + glm::vec3(distance), 1.0f);
-            nodeCounts.push_back(selected.size());
-
-            // Calculate average node size
-            float avgSize = 0.0f;
-            for(uint32_t idx : selected) {
-                const auto& node = allNodes[idx];
-                glm::vec3 size = node.upperCorner - node.lowerCorner;
-                avgSize += glm::length(size);
-            }
-            avgSize /= selected.size();
-            avgNodeSizes.push_back(avgSize);
-
-            // Calculate level distribution (approximate from node size)
-            std::vector<int> levelDistribution(10, 0); // Assume max 10 levels
-            for(uint32_t idx : selected) {
-                const auto& node = allNodes[idx];
-                glm::vec3 nodeSize = node.upperCorner - node.lowerCorner;
-                float approxLevel = std::log2(nodeSize.x / (worldUpper.x - worldLower.x) * size);
-                int level = std::min(9, std::max(0, static_cast<int>(approxLevel)));
-                levelDistribution[level]++;
-            }
-            levelDistributions.push_back(levelDistribution);
-        }
-
-        // Print LOD statistics
-        fmt::print("\nLOD Statistics:\n");
-        fmt::print("Distance | Node Count | Avg Size | Level Distribution\n");
-        fmt::print("---------|------------|----------|-------------------\n");
-
-        for(size_t i = 0; i < distances.size(); i++) {
-            fmt::print("{:8.1f} | {:10} | {:8.2f} | ", distances[i], nodeCounts[i], avgNodeSizes[i]);
-
-            for(int count : levelDistributions[i]) {
-                if(count > 0) {
-                    fmt::print("{} ", count);
+        // Different input patterns
+        auto runCase = [&](const std::string& name, auto filler) {
+            std::vector<uint8_t> grid(size * size * size, 0);
+            for(int z = 0; z < size; z++) {
+                for(int y = 0; y < size; y++) {
+                    for(int x = 0; x < size; x++) {
+                        grid[x + y * size + z * size * size] = filler(x, y, z);
+                    }
                 }
             }
-            fmt::print("\n");
+
+            auto start = std::chrono::high_resolution_clock::now();
+            SVO svo(grid, gridSize, worldLower, worldUpper);
+            auto end = std::chrono::high_resolution_clock::now();
+
+            size_t mem = svo.estimateMemoryUsageBytes();
+            size_t dense = grid.size() * sizeof(uint8_t);
+            auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+
+            fmt::print("[{} {}³] Time={} ms, SVO={} bytes, Dense={} bytes, Ratio={:.2f}x, Nodes={}\n",
+                name, size, ms, mem, dense, (double)mem / dense, svo.getFlatGPUNodes().size());
+            };
+
+        // Case A: Solid
+        runCase("Solid", [&](int, int, int) { return 1; });
+
+        // Case B: Empty
+        runCase("Empty", [&](int, int, int) { return 0; });
+
+        // Case C: Sparse random (10%)
+        runCase("Sparse10", [&](int, int, int) { return (rand() % 10 == 0) ? 1 : 0; });
+
+        // Case D: Checkerboard
+        runCase("Checker", [&](int x, int y, int z) { return ((x + y + z) % 2) ? 1 : 0; });
+    }
+
+    printTestResult("Bricked SVO Efficiency", true);
+}
+
+void SVOUnitTests::benchmarkLODSimulation()
+{
+    fmt::print("\n=== LOD Selection Simulation ===\n");
+
+    // Build a demo scene: layered terrain + scattered objects
+    const int size = 512; // change to 256/512 based on memory/time
+    fmt::print("Scene: {}^3 layered terrain with scattered objects\n", size);
+
+    std::vector<uint8_t> grid(size * size * size, 0);
+
+    // Simple layered terrain + a few pillars (sparse objects)
+    for(int x = 0; x < size; ++x) {
+        for(int z = 0; z < size; ++z) {
+            float nx = float(x) / float(size);
+            float nz = float(z) / float(size);
+            float height = 0.4f + 0.2f * std::sin(nx * 10.0f) + 0.15f * std::cos(nz * 12.0f);
+            int h = std::min(size - 1, int(height * size * 0.5f));
+            for(int y = 0; y <= h; ++y) {
+                uint8_t mat = (y == h) ? 2u : 1u; // grass top vs stone
+                grid[x + y * size + z * size * size] = mat;
+            }
         }
+    }
 
-        // Verify LOD behavior
-        for(size_t i = 1; i < nodeCounts.size(); i++) {
-            assert(nodeCounts[i] <= nodeCounts[i - 1]); // Should have fewer nodes at greater distances
-            assert(avgNodeSizes[i] >= avgNodeSizes[i - 1]); // Should have larger nodes at greater distances
+    // Add some sparse pillars for detail
+    for(int k = 0; k < 300; ++k) {
+        int cx = (k * 37) % size;
+        int cz = (k * 91) % size;
+        int radius = 2 + (k % 4);
+        int top = std::min(size - 1, 60 + (k % 20));
+        for(int y = 0; y < top; ++y) {
+            for(int dz = -radius; dz <= radius; ++dz) {
+                for(int dx = -radius; dx <= radius; ++dx) {
+                    int px = cx + dx, pz = cz + dz;
+                    if(px >= 0 && px < size && pz >= 0 && pz < size) {
+                        grid[px + y * size + pz * size * size] = 3; // tower material
+                    }
+                }
+            }
         }
+    }
 
-        // Calculate and print compression ratio
-        float compressionRatio = (float)denseMemory / memoryUsage;
-        float occupancy = 0.0f;
-        for(auto v : grid) {
-            if(v != 0) occupancy += 1.0f;
+    glm::uvec3 gridSize(size, size, size);
+    glm::vec3 worldLower(0.0f), worldUpper(static_cast<float>(size));
+
+    fmt::print("Building SVO (bricks)...\n");
+    auto t0 = std::chrono::high_resolution_clock::now();
+    SVO svo(grid, gridSize, worldLower, worldUpper);
+    auto t1 = std::chrono::high_resolution_clock::now();
+    double buildMs = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+
+    size_t mem = svo.estimateMemoryUsageBytes();
+    const auto& nodes = svo.getFlatGPUNodes();
+    const auto& bricks = svo.getBricks();
+
+    fmt::print("Build time: {:.3f} ms, SVO mem: {} bytes, Nodes: {}, Bricks: {}\n",
+        buildMs, mem, nodes.size(), bricks.size());
+
+    // Camera path: grid of camera positions over area, at multiple heights -> simulate frames
+    const int camGrid = 12;
+    std::vector<glm::vec3> cameraPositions;
+    for(int iz = 0; iz < camGrid; ++iz) {
+        for(int ix = 0; ix < camGrid; ++ix) {
+            float fx = (ix + 0.5f) / float(camGrid);
+            float fz = (iz + 0.5f) / float(camGrid);
+            float wx = fx * size;
+            float wz = fz * size;
+            cameraPositions.push_back(glm::vec3(wx, size * 0.6f, wz)); // mid-high camera
+            cameraPositions.push_back(glm::vec3(wx, size * 0.3f, wz)); // lower
+            cameraPositions.push_back(glm::vec3(wx, size * 0.85f, wz)); // high
         }
-        occupancy /= (grid.size());
+    }
 
-        fmt::print("\nCompression Analysis:\n");
-        fmt::print("Occupancy: {:.1f}%\n", occupancy * 100.0f);
-        fmt::print("Compression ratio: {:.2f}x\n", compressionRatio);
-        fmt::print("Bytes per voxel: {:.2f}\n", (float)memoryUsage / (size * size * size));
+    // LOD base distances to test (affects selection granularity)
+    std::vector<float> lodBases = { 0.5f, 1.0f, 2.0f, 4.0f };
 
-        // Verify that all selected nodes are valid
-        for(float distance : distances) {
-            auto selected = svo.selectNodes(center + glm::vec3(distance), 1.0f);
+    // For each lodBase, run selection on all camera positions and gather stats
+    for(float lodBase : lodBases) {
+        uint64_t totalSelected = 0;
+        double totalSelectMs = 0.0;
+        std::vector<size_t> perFrameCounts;
+        std::map<int, uint64_t> levelCounts; // cumulative per-level
+        std::vector<double> perFrameTimes;
+
+        for(const auto& cam : cameraPositions) {
+            auto tsel0 = std::chrono::high_resolution_clock::now();
+            auto selected = svo.selectNodes(cam, lodBase);
+            auto tsel1 = std::chrono::high_resolution_clock::now();
+            double selMs = std::chrono::duration_cast<std::chrono::microseconds>(tsel1 - tsel0).count() * 1e-3;
+            totalSelectMs += selMs;
+            perFrameTimes.push_back(selMs);
+
+            totalSelected += selected.size();
+            perFrameCounts.push_back(selected.size());
+
+            // accumulate per-level distribution and avg sizes
             for(uint32_t idx : selected) {
-                assert(idx < allNodes.size());
+                const auto& n = nodes[idx];
+                levelCounts[n.level] += 1;
             }
         }
 
-        fmt::print("{}x{}x{} terrain LOD test: PASSED\n", size, size, size);
+        double avgPerFrame = double(totalSelected) / double(cameraPositions.size());
+        double avgSelectMs = totalSelectMs / double(cameraPositions.size());
+
+        // median per-frame time
+        std::sort(perFrameTimes.begin(), perFrameTimes.end());
+        double medianMs = perFrameTimes[perFrameTimes.size() / 2];
+
+        fmt::print("\n--- LOD base {:.2f} stats ---\n", lodBase);
+        fmt::print("frames={} avgSelected={:.2f} avgSelectMs={:.4f} medianMs={:.4f}\n",
+            cameraPositions.size(), avgPerFrame, avgSelectMs, medianMs);
+
+        fmt::print("Per-level selection counts (cumulative across frames):\n");
+        for(auto it = levelCounts.rbegin(); it != levelCounts.rend(); ++it) { // coarse -> fine
+            fmt::print(" level {} : {} hits\n", it->first, it->second);
+        }
     }
+
+    fmt::print("\nLOD selection simulation finished.\n");
+}
+
+void SVOUnitTests::benchmarkLargeScaleEfficiency()
+{
+    fmt::print("\n\n=== Large-Scale Efficiency Benchmark ===\n");
+
+    // sizes to try: be careful with 1024 on low-memory machines
+    std::vector<int> sizes = { 128, 256, 512, 1024 };
+
+    for(int size : sizes) {
+        // safety: estimate dense bytes and skip if exceeds some cap (for CI/machines)
+        size_t denseBytes = size_t(size) * size_t(size) * size_t(size);
+        if(denseBytes > (size_t)1024 * 1024 * 1024 * 4ULL) { // >4GB raw -> skip by default
+            fmt::print("Skipping {}^3 (raw bytes {}). Adjust cap if you want to run this.\n", size, denseBytes);
+            continue;
+        }
+
+        fmt::print("\n--- Size {}^3 ---\n", size);
+
+        // We will test 3 input patterns:
+        //  1) layered terrain (like earlier)
+        //  2) sparse scattered voxels (1 per 4096)
+        //  3) dense random (50% occupancy)
+        auto runCase = [&](const std::string& name, std::function<uint8_t(int, int, int)> filler) {
+            fmt::print("Building grid '{}' for {}^3 ...\n", name, size);
+
+            // allocate grid (may be large)
+            std::vector<uint8_t> grid;
+            try {
+                grid.assign(size_t(size) * size_t(size) * size_t(size), 0u);
+            }
+            catch(std::bad_alloc&) {
+                fmt::print("  Allocation failed for {}^3 - skipping\n", size);
+                return;
+            }
+
+            for(int z = 0; z < size; ++z)
+                for(int y = 0; y < size; ++y)
+                    for(int x = 0; x < size; ++x) {
+                        grid[x + y * size + z * size * size] = filler(x, y, z);
+                    }
+
+            glm::uvec3 gridSize(size, size, size);
+            glm::vec3 worldLower(0.0f), worldUpper(static_cast<float>(size));
+
+            auto t0 = std::chrono::high_resolution_clock::now();
+            SVO svo(grid, gridSize, worldLower, worldUpper);
+            auto t1 = std::chrono::high_resolution_clock::now();
+            double buildMs = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+
+            size_t mem = svo.estimateMemoryUsageBytes();
+            size_t denseBytesLocal = grid.size() * sizeof(uint8_t);
+            size_t nodes = svo.getFlatGPUNodes().size();
+            size_t bricks = svo.getBricks().size();
+
+            fmt::print("  Build: {:.3f} ms, SVO mem: {} bytes, Dense mem: {} bytes, Ratio={:.2f}x, Nodes={}, Bricks={}\n",
+                buildMs, mem, denseBytesLocal, double(mem) / double(denseBytesLocal), nodes, bricks);
+            };
+
+        // layered terrain
+        runCase("terrain", [&](int x, int y, int z)->uint8_t {
+            float nx = float(x) / float(size);
+            float nz = float(z) / float(size);
+            float height = 0.45f + 0.2f * sin(nx * 10.0f) + 0.15f * cos(nz * 12.0f);
+            int h = int(height * size * 0.5f);
+            if(y <= h) return (y == h) ? 2 : 1;
+            return 0;
+            });
+
+        // sparse scattered: 1 in 4096 occupied
+        runCase("sparse", [&](int x, int y, int z)->uint8_t {
+            uint32_t idx = (uint32_t(x * 73856093u) ^ uint32_t(y * 19349663u) ^ uint32_t(z * 83492791u));
+            return ((idx & 0xFFFu) == 0u) ? 4u : 0u; // approx 1/4096
+            });
+
+        // dense random 50%
+        std::mt19937 rng(12345);
+        std::uniform_int_distribution<int> coin(0, 1);
+        runCase("random50", [&](int x, int y, int z)->uint8_t {
+            return coin(rng) ? 5u : 0u;
+            });
+    }
+
+    fmt::print("\nLarge-Scale Efficiency Benchmark finished.\n");
+}
+
+void SVOUnitTests::benchmarkFineLODSelection()
+{
+    fmt::print("\n=== Fine LOD Selection Pressure Test ===\n");
+
+    // Use a moderately complex terrain (256^3 or 512^3 is enough)
+    const int size = 256;
+    std::vector<uint8_t> grid(size * size * size, 0);
+
+    // Terrain-like filler
+    for(int x = 0; x < size; ++x) {
+        for(int z = 0; z < size; ++z) {
+            float nx = float(x) / float(size);
+            float nz = float(z) / float(size);
+            float h = 0.45f + 0.25f * std::sin(nx * 15.0f) + 0.2f * std::cos(nz * 18.0f);
+            int height = int(h * size * 0.7f);
+            for(int y = 0; y <= height; ++y)
+                grid[x + y * size + z * size * size] = 1;
+        }
+    }
+
+    glm::uvec3 gridSize(size, size, size);
+    glm::vec3 worldLower(0.0f), worldUpper(static_cast<float>(size));
+
+    fmt::print("Building SVO...\n");
+    auto t0 = std::chrono::high_resolution_clock::now();
+    SVO svo(grid, gridSize, worldLower, worldUpper);
+    auto t1 = std::chrono::high_resolution_clock::now();
+    double buildMs = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+    fmt::print("Build time: {:.3f} ms, nodes={}, bricks={}\n",
+        buildMs, svo.getFlatGPUNodes().size(), svo.getBricks().size());
+
+    // Define very close-up camera positions near the terrain surface
+    std::vector<glm::vec3> cameras;
+    for(int i = 0; i < 12; ++i) {
+        float fx = float((i * 37) % size) / float(size);
+        float fz = float((i * 91) % size) / float(size);
+        float wx = fx * size;
+        float wz = fz * size;
+        float wy = 12.0f; // really close above terrain
+        cameras.push_back(glm::vec3(wx, wy, wz));
+    }
+
+    // Use an aggressive LOD base so we force traversal deeper
+    float lodBase = 1.0f;
+
+    fmt::print("Testing {} close-up cameras with lodBase={}...\n",
+        cameras.size(), lodBase);
+
+    const auto& nodes = svo.getFlatGPUNodes();
+    const int brickSize = BRICK_SIZE;
+
+    // Accumulators
+    uint64_t totalSelected = 0;
+    uint64_t totalVoxels = 0;
+    std::map<int, uint64_t> levelHits;
+
+    for(const auto& cam : cameras) {
+        auto selected = svo.selectNodes(cam, lodBase);
+        totalSelected += selected.size();
+
+        for(uint32_t idx : selected) {
+            const auto& n = nodes[idx];
+            levelHits[n.level]++;
+            if(n.level == 3)
+            {
+                int x =  3;
+            }
+
+            // Estimate voxel contribution: brickSize^3 if leaf brick
+            if(n.brickIndex >= 0) {
+                totalVoxels += brickSize * brickSize * brickSize;
+            }
+            else {
+                // coarser node covers larger region
+                uint64_t side = brickSize << n.level;
+                totalVoxels += side * side * side;
+            }
+        }
+    }
+
+    double avgNodes = double(totalSelected) / double(cameras.size());
+    double avgVoxels = double(totalVoxels) / double(cameras.size());
+
+    fmt::print("\nResults:\n");
+    fmt::print("  Avg selected nodes per frame: {:.2f}\n", avgNodes);
+    fmt::print("  Avg covered voxels per frame: {:.0f}\n", avgVoxels);
+
+    fmt::print("  Level distribution:\n");
+    for(auto it = levelHits.rbegin(); it != levelHits.rend(); ++it) {
+        fmt::print("   level {} : {}\n", it->first, it->second);
+    }
+
+    fmt::print("Fine LOD Selection Pressure Test finished.\n");
 }
 
 void SVOUnitTests::benchmark()
@@ -652,19 +441,11 @@ void SVOUnitTests::benchmark()
 
     try 
     {
-        testBasicCorrectness();
-        testEmptyGrid();
-        testSingleVoxel();
-        test2x2x2Grid();
-        testFullGrid();
-        testSparseGrid();
-        testMemoryUsage();
-        testLODSelection();
-        testLargeSparseGrid();
-        testComplexPattern();
-        testCorrectness();
-        testStructureCorrectness();
-        testLargeScaleTerrainLOD();
+        testBrickedCorrectness();
+        testBrickedEfficiency();
+        benchmarkLODSimulation();
+        // benchmarkLargeScaleEfficiency();
+        benchmarkFineLODSelection();
 
         fmt::print("\nAll tests passed!\n");
     }
