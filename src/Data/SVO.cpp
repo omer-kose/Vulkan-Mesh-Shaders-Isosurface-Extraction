@@ -87,7 +87,7 @@ void SVO::buildTree()
 
                 Brick b;
                 bool anyNonZero = false;
-                bool mono = true;
+                bool mono = true; // Mono is true if whole brick in non-empty and a singular color. 
                 uint8_t monoColor = 0;
                 bool firstFound = false;
 
@@ -97,40 +97,42 @@ void SVO::buildTree()
                         for(int xx = 0; xx < BRICK_SIZE; ++xx)
                         {
                             glm::uvec3 v = baseVoxel + glm::uvec3((uint32_t)xx, (uint32_t)yy, (uint32_t)zz);
-                            uint8_t val = 0;
-                            if(v.x < originalGridSize.x && v.y < originalGridSize.y && v.z < originalGridSize.z) {
-                                val = voxelValue(v);
-                            }
-                            else {
-                                val = 0;
-                            }
-                            b.voxels[xx + BRICK_SIZE * (yy + BRICK_SIZE * zz)] = val;
-                            if(val != 0) {
+                            uint8_t val = voxelValue(v);
+                            if(val != 0) 
+                            {
+                                b.voxels[xx + BRICK_SIZE * (yy + BRICK_SIZE * zz)] = val;
                                 anyNonZero = true;
                                 if(!firstFound) { monoColor = val; firstFound = true; }
                                 else if(mono && val != monoColor) mono = false;
                             }
+                            else
+                            {
+                                // If there is at least one empty voxel in the brick, the brick cannot be represented by a single color and node. It must be fully stored
+                                mono = false;
+                            }
                         }
 
-                if(!anyNonZero) {
+                if(!anyNonZero) 
+                {
                     continue; // skip empty bricks
                 }
 
-                // If brick is mono-color, we will not store the brick data; instead create a mono-color node
-                // TOOO: Brick collapsing is buggy too
-                mono = false;
-                if(mono) {
+                // If the brick is mono-color and fully covered (no empty voxels), we will not store the brick data; instead create a mono-color node
+                if(mono) 
+                {
                     nodes.emplace_back(leafLevel, brickCoord, monoColor);
                     uint32_t nodeIdx = static_cast<uint32_t>(nodes.size() - 1);
                     nodes[nodeIdx].brickIndex = -1; // no brick store (mono color)
                     levelMaps[leafLevel][brickCoord] = nodeIdx;
                 }
-                else {
+                else 
+                {
                     // store the brick and create a node referencing it
                     bricks.push_back(b);
                     nodes.emplace_back(leafLevel, brickCoord, 0u);
                     uint32_t nodeIdx = static_cast<uint32_t>(nodes.size() - 1);
                     nodes[nodeIdx].brickIndex = static_cast<int32_t>(bricks.size() - 1);
+                    // TODO: This won't be necessary as finest level is always processed in voxel level.
                     // color can be majority color if you like
                     std::array<int, 256> counts; counts.fill(0);
                     for(auto c : b.voxels) if(c) counts[c]++;
@@ -179,45 +181,17 @@ void SVO::buildTree()
                 child.parentIndex = static_cast<int32_t>(parentIdx);
             }
 
-            // compute parent color and attempt collapse:
-            // If all 8 children exist and all have same color and none are mixed bricks (brickIndex != -1),
-            // collapse into parent mono-color (do not keep children)
-            bool allPresent = true;
-            bool allSameColor = true;
-            uint8_t firstColor = 0;
-            bool firstSet = false;
-            bool anyChildHasBrick = false;
+
+            // compute majority color fallback 
+            std::array<int, 256> counts; counts.fill(0);
             for(int i = 0; i < 8; ++i) {
                 int32_t cidx = parent.children[i];
-                if(cidx < 0) { allPresent = false; break; }
-                const Node& c = nodes[cidx];
-                if(c.brickIndex != -1) anyChildHasBrick = true;
-                if(!firstSet) { firstColor = c.color; firstSet = true; }
-                else if(c.color != firstColor) allSameColor = false;
+                if(cidx >= 0 && nodes[cidx].alive) counts[nodes[cidx].color]++;
             }
-
-            // TODO: Collapsing logic is buggy
-            bool collapse = allPresent&& allSameColor && !anyChildHasBrick;
-            collapse = false;
-            if(collapse) 
-            {
-                // collapse: mark parent as leaf with color and sever children (we don't reclaim memory)
-                parent.color = firstColor;
-                parent.childrenMask = 0;
-                for(int i = 0; i < 8; ++i) parent.children[i] = -1;
-            }
-            else 
-            {
-                // majority color fallback
-                std::array<int, 256> counts; counts.fill(0);
-                for(int i = 0; i < 8; ++i) {
-                    int32_t cidx = parent.children[i];
-                    if(cidx >= 0) counts[nodes[cidx].color]++;
-                }
-                int best = 0; uint8_t bestColor = 0;
-                for(int c = 0; c < 256; ++c) if(counts[c] > best) { best = counts[c]; bestColor = static_cast<uint8_t>(c); }
-                parent.color = bestColor;
-            }
+            int best = 0; uint8_t bestColor = 0;
+            for(int c = 0; c < 256; ++c) if(counts[c] > best) { best = counts[c]; bestColor = static_cast<uint8_t>(c); }
+            parent.color = bestColor;
+            
         }
     }
 
@@ -237,6 +211,7 @@ void SVO::flattenTree()
     std::function<void(int32_t)> dfs = [&](int32_t idx) {
         if(idx < 0) return;
         Node& n = nodes[idx];
+        if(!n.alive) return; // skip dead nodes
 
         glm::vec3 mn, mx;
         computeWorldAABB(n, mn, mx);
@@ -271,6 +246,12 @@ void SVO::computeWorldAABB(const Node& node, glm::vec3& outMin, glm::vec3& outMa
     outMax = glm::min(outMax, worldUpper);
 }
 
+float SVO::distanceToAABB(const glm::vec3& p, const glm::vec3& min, const glm::vec3& max) const
+{
+    glm::vec3 clamped = glm::clamp(p, min, max);
+    return glm::length(clamped - p);
+}
+
 std::vector<uint32_t> SVO::selectNodes(const glm::vec3& cameraPos, float lodBaseDist) const
 {
     std::vector<uint32_t> result;
@@ -301,19 +282,75 @@ std::vector<uint32_t> SVO::selectNodes(const glm::vec3& cameraPos, float lodBase
         glm::vec3 ext = mx - mn;
         float nodeExtent = std::max(std::max(ext.x, ext.y), ext.z);
 
-        if(n.level == 0 || dist > lodBaseDist * nodeExtent) {
-            if(n.flatIndex >= 0) result.push_back(static_cast<uint32_t>(n.flatIndex));
+        // Determine if node is a leaf in our bricked SVO
+        bool isLeaf = (n.childrenMask == 0) || (n.brickIndex >= 0);
+
+        // Select leaf nodes unconditionally (they contain renderable data), or select
+        // non-leaf nodes when they are sufficiently far (coarser LOD).
+        if(isLeaf || dist > lodBaseDist * nodeExtent) {
+            if(n.flatIndex >= 0 && n.alive) {
+                result.push_back(static_cast<uint32_t>(n.flatIndex));
+            }
         }
         else {
-            // descend children
+            // descend children (only alive ones)
             for(int i = 0; i < 8; ++i) {
                 int32_t c = n.children[i];
-                if(c >= 0) stack.push_back(c);
+                if(c >= 0 && nodes[c].alive) stack.push_back(c);
             }
         }
     }
 
     return result;
+}
+
+std::vector<uint32_t> SVO::selecNodesScreenSpace(const glm::vec3& cameraPos, float fovY, float aspect, uint32_t screenHeight, float pixelThreshold) const
+{
+    std::vector<uint32_t> selectedIndices;
+    selectedIndices.reserve(1024);
+
+    // Pixels-per-world-unit factor at distance = 1
+    const float screenFactor = float(screenHeight) / (2.0f * std::tan(fovY * 0.5f));
+
+    // traversal lambda (uses computeWorldAABB and distanceToAABB)
+    std::function<void(uint32_t)> traverse = [&](uint32_t idx) {
+        const Node& node = nodes[idx];
+
+        glm::vec3 minW, maxW;
+        computeWorldAABB(node, minW, maxW);
+
+        float dist = distanceToAABB(cameraPos, minW, maxW);
+        float nodeSize = maxW.x - minW.x; // cube, but pick X extent
+
+        float projectedSize = (nodeSize / std::max(dist, 1e-6f)) * screenFactor;
+
+        bool refine = (projectedSize > pixelThreshold && node.level > 0);
+
+        if(refine && node.childrenMask != 0) {
+            // descend into explicit children (use childrenMask / children[])
+            for(int i = 0; i < 8; ++i) {
+                if(node.childrenMask & (1u << i)) {
+                    int32_t cidx = node.children[i];
+                    if(cidx >= 0) traverse(static_cast<uint32_t>(cidx));
+                }
+            }
+        }
+        else {
+            selectedIndices.push_back(static_cast<uint32_t>(idx));
+        }
+        };
+
+    // Start traversal from all root candidates (parentIndex == -1).
+    // This handles sparse trees with multiple roots.
+    bool anyRoot = false;
+    for(uint32_t i = 0; i < nodes.size(); ++i) {
+        if(nodes[i].parentIndex == -1) {
+            anyRoot = true;
+            traverse(i);
+        }
+    }
+
+    return selectedIndices;
 }
 
 size_t SVO::estimateMemoryUsageBytes() const

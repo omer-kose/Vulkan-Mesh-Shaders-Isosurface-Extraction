@@ -50,9 +50,9 @@ public:
     const std::vector<SVONodeGPU>& getFlatGPUNodes() const { return flatNodesGPU; }
     const std::vector<Brick>& getBricks() const { return bricks; }
     std::vector<uint32_t> selectNodes(const glm::vec3& cameraPos, float lodBaseDist) const;
+    std::vector<uint32_t> selecNodesScreenSpace(const glm::vec3& cameraPos, float fovY, float aspect, uint32_t screenHeight, float pixelThreshold) const;
     size_t estimateMemoryUsageBytes() const;
-
-private:
+public:
     // Compact node representation with explicit children indices
     struct Node
     {
@@ -65,9 +65,11 @@ private:
         uint8_t level = 0;                     // level (0=voxels, leafLevel=brick size)
         uint8_t color = 0;                     // aggregated color (mono color or majority)
 
+        bool alive = true; // logical alive flag (later used for compaction of the tree)
+
         Node(int l = 0, const glm::uvec3& c = glm::uvec3(0), uint8_t col = 0)
             : coord(glm::u16vec3(c)), parentIndex(-1), children{ -1,-1,-1,-1,-1,-1,-1,-1 },
-            childrenMask(0), flatIndex(-1), brickIndex(-1), level(static_cast<uint8_t>(l)), color(col)
+            childrenMask(0), flatIndex(-1), brickIndex(-1), level(static_cast<uint8_t>(l)), color(col), alive(true)
         {
         }
     };
@@ -90,4 +92,5 @@ private:
     void buildTree();
     void flattenTree();
     void computeWorldAABB(const Node& node, glm::vec3& outMin, glm::vec3& outMax) const;
+    float distanceToAABB(const glm::vec3& p, const glm::vec3& min, const glm::vec3& max) const;
 };
