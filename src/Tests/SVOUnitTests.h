@@ -14,6 +14,7 @@ public:
 
 private:
     void testBrickedCorrectness();
+    void testBrickedCorrectnessNonPowerOfTwo();
     void testBrickedEfficiency();
     void benchmarkLODSimulation();
     void benchmarkLargeScaleEfficiency();

@@ -34,7 +34,8 @@ SVO::SVO(const std::vector<uint8_t>& grid,
     const glm::uvec3& originalGridSize_,
     const glm::vec3& worldLower_,
     const glm::vec3& worldUpper_)
-    : origGrid(grid),
+    : 
+    origGrid(grid),
     originalGridSize(originalGridSize_),
     worldLower(worldLower_),
     worldUpper(worldUpper_)

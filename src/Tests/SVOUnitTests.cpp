@@ -86,6 +86,87 @@ void SVOUnitTests::testBrickedCorrectness()
     printTestResult("Bricked SVO Correctness", true);
 }
 
+void SVOUnitTests::testBrickedCorrectnessNonPowerOfTwo()
+{
+    fmt::print("\n=== Bricked SVO Correctness Test ===\n");
+
+    const int size = 31;
+    std::vector<uint8_t> grid(size * size * size, 0);
+
+    // Place voxels in specific corners and edges
+    grid[0] = 1; // (0,0,0)
+    grid[size - 1] = 2; // (30,0,0)
+    grid[(size - 1) + (size - 1) * size] = 3; // (30,30,0)
+    grid[(size - 1) + (size - 1) * size + (size - 1) * size * size] = 4; // (30,30,30)
+
+    glm::uvec3 gridSize(size, size, size);
+    glm::vec3 worldLower(0.0f), worldUpper(static_cast<float>(size));
+
+    SVO svo(grid, gridSize, worldLower, worldUpper);
+
+    const auto& gpuNodes = svo.getFlatGPUNodes();
+
+    // 1) Basic bounds sanity
+    for(const auto& node : gpuNodes) {
+        assert(node.lowerCorner.x >= worldLower.x - 1e-6f);
+        assert(node.lowerCorner.y >= worldLower.y - 1e-6f);
+        assert(node.lowerCorner.z >= worldLower.z - 1e-6f);
+        assert(node.upperCorner.x <= worldUpper.x + 1e-6f);
+        assert(node.upperCorner.y <= worldUpper.y + 1e-6f);
+        assert(node.upperCorner.z <= worldUpper.z + 1e-6f);
+    }
+
+    // 2) No overlaps among nodes at the *same level*
+    // group nodes by level (NOT by color!)
+    std::map<int, std::vector<std::pair<size_t, SVONodeGPU>>> nodesByLevel;
+    for(size_t i = 0; i < gpuNodes.size(); ++i) {
+        const auto& n = gpuNodes[i];
+        nodesByLevel[n.level].push_back({ i, n });
+    }
+
+    auto aabbOverlap = [&](const SVONodeGPU& A, const SVONodeGPU& B) -> bool {
+        // Use epsilon to avoid FP equality corner cases. Treat touching faces as non-overlap.
+        constexpr float eps = 1e-6f;
+        bool sepX = (A.upperCorner.x <= B.lowerCorner.x + eps) || (B.upperCorner.x <= A.lowerCorner.x + eps);
+        bool sepY = (A.upperCorner.y <= B.lowerCorner.y + eps) || (B.upperCorner.y <= A.lowerCorner.y + eps);
+        bool sepZ = (A.upperCorner.z <= B.lowerCorner.z + eps) || (B.upperCorner.z <= A.lowerCorner.z + eps);
+        return !(sepX || sepY || sepZ); // overlap if no separating axis
+        };
+
+    for(auto& kv : nodesByLevel) {
+        int level = kv.first;
+        auto& vec = kv.second;
+        for(size_t i = 0; i < vec.size(); ++i) {
+            for(size_t j = i + 1; j < vec.size(); ++j) {
+                const auto& ai = vec[i];
+                const auto& bi = vec[j];
+                const SVONodeGPU& a = ai.second;
+                const SVONodeGPU& b = bi.second;
+                if(aabbOverlap(a, b)) {
+                    // Helpful debug output before asserting — will show you the two offending nodes
+                    fmt::print("Overlap detected at level {} between nodes {} and {}:\n", level, ai.first, bi.first);
+                    fmt::print("  A idx={} lvl={} min=({:.6f},{:.6f},{:.6f}) max=({:.6f},{:.6f},{:.6f}) color={}\n",
+                        ai.first, a.level, a.lowerCorner.x, a.lowerCorner.y, a.lowerCorner.z,
+                        a.upperCorner.x, a.upperCorner.y, a.upperCorner.z, a.colorIndex);
+                    fmt::print("  B idx={} lvl={} min=({:.6f},{:.6f},{:.6f}) max=({:.6f},{:.6f},{:.6f}) color={}\n",
+                        bi.first, b.level, b.lowerCorner.x, b.lowerCorner.y, b.lowerCorner.z,
+                        b.upperCorner.x, b.upperCorner.y, b.upperCorner.z, b.colorIndex);
+                    assert(!"Two nodes at same level overlap — investigate coordinates above");
+                }
+            }
+        }
+    }
+
+    // 3) LOD sanity: far should not select more nodes than near
+    auto nearNodes = svo.selectNodes(glm::vec3(0.0f), 1.0f);
+    auto farNodes = svo.selectNodes(glm::vec3(100.0f), 1.0f);
+    assert(!nearNodes.empty());
+    assert(!farNodes.empty());
+    assert(farNodes.size() <= nearNodes.size());
+
+    printTestResult("Bricked SVO Correctness Non Power of Two", true);
+}
+
 void SVOUnitTests::testBrickedEfficiency()
 {
     fmt::print("\n=== Bricked SVO Efficiency Test ===\n");
@@ -1113,6 +1194,7 @@ void SVOUnitTests::benchmark()
     try 
     {
         testBrickedCorrectness();
+        testBrickedCorrectnessNonPowerOfTwo();
         testBrickedEfficiency();
         benchmarkLODSimulation();
         benchmarkFineLODSelection();
