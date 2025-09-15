@@ -51,10 +51,10 @@ SVO::SVO(const std::vector<uint8_t>& grid,
     levels = 0;
     uint32_t tmp = cubeDim;
     while(tmp > 1u) { tmp >>= 1u; ++levels; }
-    ++levels; // now levels is such that level index runs 0..levels-1 and top has size cubeDim/(1<<top) == 1
+    ++levels; // levels is such that level index runs 0..levels-1 and top has size cubeDim/(1<<top) == 1
 
     // compute brick leaf level (level index where a node covers BRICK_SIZE^3 padded voxels)
-    // level==0 -> node covers 1 voxel. So leafLevel = log2(BRICK_SIZE)
+    // level==0 -> node covers 1 voxel. So leafLevel = log2(BRICK_SIZE). Voxel level processing will be done in the task shader
     int blk = BRICK_SIZE;
     leafLevel = 0;
     while((1 << leafLevel) < blk) ++leafLevel;
@@ -133,19 +133,12 @@ void SVO::buildTree()
                     nodes.emplace_back(leafLevel, brickCoord, 0u);
                     uint32_t nodeIdx = static_cast<uint32_t>(nodes.size() - 1);
                     nodes[nodeIdx].brickIndex = static_cast<int32_t>(bricks.size() - 1);
-                    // TODO: This won't be necessary as finest level is always processed in voxel level.
-                    // color can be majority color if you like
-                    std::array<int, 256> counts; counts.fill(0);
-                    for(auto c : b.voxels) if(c) counts[c]++;
-                    int best = 0; uint8_t bestColor = 0;
-                    for(int i = 0; i < 256; ++i) if(counts[i] > best) { best = counts[i]; bestColor = (uint8_t)i; }
-                    nodes[nodeIdx].color = bestColor;
-                    levelMaps[leafLevel][brickCoord] = nodeIdx;
                 }
             }
 
     // --- Build upper levels sparsely from level = leafLevel+1 .. levels-1 ---
-    for(int L = leafLevel + 1; L < levels; ++L) {
+    for(int L = leafLevel + 1; L < levels; ++L) 
+    {
         // snapshot child entries to avoid invalidation issues
         std::vector<std::pair<glm::uvec3, uint32_t>> childEntries;
         childEntries.reserve(levelMaps[L - 1].size());
@@ -153,7 +146,8 @@ void SVO::buildTree()
 
         // collect children per parent coordinate
         std::map<glm::uvec3, std::vector<uint32_t>, UVec3Comparator> parentChildren;
-        for(const auto& entry : childEntries) {
+        for(const auto& entry : childEntries) 
+        {
             glm::uvec3 childCoord = entry.first;      // coord at level L-1
             uint32_t childIdx = entry.second;
             glm::uvec3 parentCoord = childCoord >> 1u; // coord at level L
@@ -161,7 +155,8 @@ void SVO::buildTree()
         }
 
         // create parents
-        for(auto& pc : parentChildren) {
+        for(auto& pc : parentChildren) 
+        {
             glm::uvec3 parentCoord = pc.first;
             const std::vector<uint32_t>& childrenIdx = pc.second;
 
@@ -171,7 +166,8 @@ void SVO::buildTree()
             Node& parent = nodes[parentIdx];
 
             // link explicit children
-            for(uint32_t childIdx : childrenIdx) {
+            for(uint32_t childIdx : childrenIdx) 
+            {
                 Node& child = nodes[childIdx];
                 // childCoord at level L-1:
                 glm::uvec3 childCoord = glm::uvec3(child.coord);
@@ -185,7 +181,8 @@ void SVO::buildTree()
 
             // compute majority color fallback 
             std::array<int, 256> counts; counts.fill(0);
-            for(int i = 0; i < 8; ++i) {
+            for(int i = 0; i < 8; ++i) 
+            {
                 int32_t cidx = parent.children[i];
                 if(cidx >= 0) counts[nodes[cidx].color]++;
             }
@@ -253,11 +250,13 @@ std::vector<uint32_t> SVO::selectNodes(const glm::vec3& cameraPos, float lodBase
 
     // iterative stack traversal starting at roots
     std::vector<int32_t> stack;
-    for(size_t i = 0; i < nodes.size(); ++i) {
+    for(size_t i = 0; i < nodes.size(); ++i) 
+    {
         if(nodes[i].parentIndex == -1) stack.push_back((int32_t)i);
     }
 
-    while(!stack.empty()) {
+    while(!stack.empty()) 
+    {
         int32_t nodeIdx = stack.back();
         stack.pop_back();
         const Node& n = nodes[nodeIdx];
@@ -281,15 +280,18 @@ std::vector<uint32_t> SVO::selectNodes(const glm::vec3& cameraPos, float lodBase
 
         // Select leaf nodes unconditionally (they contain renderable data), or select
         // non-leaf nodes when they are sufficiently far (coarser LOD).
-        if(isLeaf || dist > lodBaseDist * nodeExtent) {
+        if(isLeaf || dist > lodBaseDist * nodeExtent) 
+        {
             if(n.flatIndex >= 0) 
             {
                 result.push_back(static_cast<uint32_t>(n.flatIndex));
             }
         }
-        else {
+        else 
+        {
             // descend children (only existing ones)
-            for(int i = 0; i < 8; ++i) {
+            for(int i = 0; i < 8; ++i) 
+            {
                 int32_t c = n.children[i];
                 if(c >= 0) stack.push_back(c);
             }

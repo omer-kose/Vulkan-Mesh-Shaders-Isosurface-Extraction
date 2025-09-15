@@ -10,7 +10,7 @@
 #include <array>
 
 // Tune this according to memory vs quality tradeoff.
-// Must be power of two. 8 is a good start for terrain.
+// Must be power of two. 8 is a good pick
 constexpr int BRICK_SIZE = 8;
 constexpr int BRICK_VOLUME = BRICK_SIZE * BRICK_SIZE * BRICK_SIZE;
 
