@@ -133,6 +133,7 @@ void SVO::buildTree()
                     nodes.emplace_back(leafLevel, brickCoord, 0u);
                     uint32_t nodeIdx = static_cast<uint32_t>(nodes.size() - 1);
                     nodes[nodeIdx].brickIndex = static_cast<int32_t>(bricks.size() - 1);
+                    levelMaps[leafLevel][brickCoord] = nodeIdx;
                 }
             }
 
