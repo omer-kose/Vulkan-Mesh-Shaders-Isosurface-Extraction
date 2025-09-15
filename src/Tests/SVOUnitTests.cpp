@@ -403,10 +403,6 @@ void SVOUnitTests::benchmarkFineLODSelection()
         for(uint32_t idx : selected) {
             const auto& n = nodes[idx];
             levelHits[n.level]++;
-            if(n.level == 3)
-            {
-                int x =  3;
-            }
 
             // Estimate voxel contribution: brickSize^3 if leaf brick
             if(n.brickIndex >= 0) {

@@ -65,11 +65,9 @@ public:
         uint8_t level = 0;                     // level (0=voxels, leafLevel=brick size)
         uint8_t color = 0;                     // aggregated color (mono color or majority)
 
-        bool alive = true; // logical alive flag (later used for compaction of the tree)
-
         Node(int l = 0, const glm::uvec3& c = glm::uvec3(0), uint8_t col = 0)
             : coord(glm::u16vec3(c)), parentIndex(-1), children{ -1,-1,-1,-1,-1,-1,-1,-1 },
-            childrenMask(0), flatIndex(-1), brickIndex(-1), level(static_cast<uint8_t>(l)), color(col), alive(true)
+            childrenMask(0), flatIndex(-1), brickIndex(-1), level(static_cast<uint8_t>(l)), color(col)
         {
         }
     };
@@ -92,5 +90,4 @@ public:
     void buildTree();
     void flattenTree();
     void computeWorldAABB(const Node& node, glm::vec3& outMin, glm::vec3& outMax) const;
-    float distanceToAABB(const glm::vec3& p, const glm::vec3& min, const glm::vec3& max) const;
 };

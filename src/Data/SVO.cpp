@@ -186,7 +186,7 @@ void SVO::buildTree()
             std::array<int, 256> counts; counts.fill(0);
             for(int i = 0; i < 8; ++i) {
                 int32_t cidx = parent.children[i];
-                if(cidx >= 0 && nodes[cidx].alive) counts[nodes[cidx].color]++;
+                if(cidx >= 0) counts[nodes[cidx].color]++;
             }
             int best = 0; uint8_t bestColor = 0;
             for(int c = 0; c < 256; ++c) if(counts[c] > best) { best = counts[c]; bestColor = static_cast<uint8_t>(c); }
@@ -211,7 +211,6 @@ void SVO::flattenTree()
     std::function<void(int32_t)> dfs = [&](int32_t idx) {
         if(idx < 0) return;
         Node& n = nodes[idx];
-        if(!n.alive) return; // skip dead nodes
 
         glm::vec3 mn, mx;
         computeWorldAABB(n, mn, mx);
@@ -244,12 +243,6 @@ void SVO::computeWorldAABB(const Node& node, glm::vec3& outMin, glm::vec3& outMa
     outMax = outMin + nodeSize;
     outMin = glm::max(outMin, worldLower);
     outMax = glm::min(outMax, worldUpper);
-}
-
-float SVO::distanceToAABB(const glm::vec3& p, const glm::vec3& min, const glm::vec3& max) const
-{
-    glm::vec3 clamped = glm::clamp(p, min, max);
-    return glm::length(clamped - p);
 }
 
 std::vector<uint32_t> SVO::selectNodes(const glm::vec3& cameraPos, float lodBaseDist) const
@@ -288,15 +281,16 @@ std::vector<uint32_t> SVO::selectNodes(const glm::vec3& cameraPos, float lodBase
         // Select leaf nodes unconditionally (they contain renderable data), or select
         // non-leaf nodes when they are sufficiently far (coarser LOD).
         if(isLeaf || dist > lodBaseDist * nodeExtent) {
-            if(n.flatIndex >= 0 && n.alive) {
+            if(n.flatIndex >= 0) 
+            {
                 result.push_back(static_cast<uint32_t>(n.flatIndex));
             }
         }
         else {
-            // descend children (only alive ones)
+            // descend children (only existing ones)
             for(int i = 0; i < 8; ++i) {
                 int32_t c = n.children[i];
-                if(c >= 0 && nodes[c].alive) stack.push_back(c);
+                if(c >= 0) stack.push_back(c);
             }
         }
     }
@@ -306,51 +300,65 @@ std::vector<uint32_t> SVO::selectNodes(const glm::vec3& cameraPos, float lodBase
 
 std::vector<uint32_t> SVO::selecNodesScreenSpace(const glm::vec3& cameraPos, float fovY, float aspect, uint32_t screenHeight, float pixelThreshold) const
 {
-    std::vector<uint32_t> selectedIndices;
-    selectedIndices.reserve(1024);
-
     // Pixels-per-world-unit factor at distance = 1
-    const float screenFactor = float(screenHeight) / (2.0f * std::tan(fovY * 0.5f));
+    const float screenFactor = float(screenHeight) / (2.0f * glm::tan(fovY * 0.5f));
 
-    // traversal lambda (uses computeWorldAABB and distanceToAABB)
-    std::function<void(uint32_t)> traverse = [&](uint32_t idx) {
-        const Node& node = nodes[idx];
+    std::vector<uint32_t> result;
+    result.reserve(1024);
+    std::vector<int32_t> stack;
 
-        glm::vec3 minW, maxW;
-        computeWorldAABB(node, minW, maxW);
+    // Push root nodes
+    for(size_t i = 0; i < nodes.size(); ++i) 
+    {
+        if(nodes[i].parentIndex == -1) stack.push_back((int32_t)i);
+    }
 
-        float dist = distanceToAABB(cameraPos, minW, maxW);
-        float nodeSize = maxW.x - minW.x; // cube, but pick X extent
+    while(!stack.empty()) 
+    {
+        int32_t nodeIdx = stack.back();
+        stack.pop_back();
+        const Node& n = nodes[nodeIdx];
 
-        float projectedSize = (nodeSize / std::max(dist, 1e-6f)) * screenFactor;
+        glm::vec3 min, max;
+        computeWorldAABB(n, min, max);
 
-        bool refine = (projectedSize > pixelThreshold && node.level > 0);
+        glm::vec3 center = (min + max) * 0.5f;
+        float dist = glm::length(cameraPos - center);
+        glm::vec3 ext = max - min;
+        float nodeExtent = std::max(std::max(ext.x, ext.y), ext.z);
 
-        if(refine && node.childrenMask != 0) {
-            // descend into explicit children (use childrenMask / children[])
-            for(int i = 0; i < 8; ++i) {
-                if(node.childrenMask & (1u << i)) {
-                    int32_t cidx = node.children[i];
-                    if(cidx >= 0) traverse(static_cast<uint32_t>(cidx));
-                }
+        // Calculate the screen-space size of this node
+        if(dist <= 0.0f) dist = 0.001f; // Avoid division by zero
+        float screenSize = (nodeExtent * screenFactor) / dist;
+
+        // Check if the node's screen size is larger than our error threshold.
+        // If it is, we need more detail (descend further).
+        bool needsRefinement = (screenSize > pixelThreshold);
+
+        bool isLeaf = (n.childrenMask == 0) || (n.brickIndex >= 0);
+
+        // Select this node if:
+        // 1. It's a leaf (we can't subdivide further), OR
+        // 2. Its projected size is small enough that we don't need to refine it.
+        if(isLeaf || !needsRefinement) 
+        {
+            if(n.flatIndex >= 0) 
+            {
+                result.push_back(static_cast<uint32_t>(n.flatIndex));
             }
         }
-        else {
-            selectedIndices.push_back(static_cast<uint32_t>(idx));
-        }
-        };
-
-    // Start traversal from all root candidates (parentIndex == -1).
-    // This handles sparse trees with multiple roots.
-    bool anyRoot = false;
-    for(uint32_t i = 0; i < nodes.size(); ++i) {
-        if(nodes[i].parentIndex == -1) {
-            anyRoot = true;
-            traverse(i);
+        else 
+        {
+            // The node is too big on screen and is not a leaf -> descend.
+            for(int i = 0; i < 8; ++i) 
+            {
+                int32_t c = n.children[i];
+                if(c >= 0) stack.push_back(c);
+            }
         }
     }
 
-    return selectedIndices;
+    return result;
 }
 
 size_t SVO::estimateMemoryUsageBytes() const
