@@ -479,6 +479,7 @@ void SVOUnitTests::benchmarkFineLODSelection()
 
     for(const auto& cam : cameras) {
         auto selected = svo.selectNodes(cam, lodBase);
+
         totalSelected += selected.size();
 
         for(uint32_t idx : selected) {
@@ -575,7 +576,7 @@ void SVOUnitTests::testLargeWorldScreenSpaceLOD()
         for(size_t c = 0; c < cameras.size(); ++c) {
             auto camPos = cameras[c];
 
-            auto selected = svo.selecNodesScreenSpace(camPos, glm::radians(60.0f), 16.0f / 9.0f, 1080, pixThr);
+            auto selected = svo.selecNodesScreenSpace(camPos, glm::radians(45.0f), 16.0f / 9.0f, 1080, pixThr);
 
             // Histogram by node.level
             std::map<uint8_t, size_t> levelHist;

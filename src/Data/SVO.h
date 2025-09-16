@@ -52,7 +52,10 @@ public:
     std::vector<uint32_t> selectNodes(const glm::vec3& cameraPos, float lodBaseDist) const;
     std::vector<uint32_t> selecNodesScreenSpace(const glm::vec3& cameraPos, float fovY, float aspect, uint32_t screenHeight, float pixelThreshold) const;
     size_t estimateMemoryUsageBytes() const;
-public:
+
+    // For unit tests
+    friend class SVOUnitTests;
+private:
     // Compact node representation with explicit children indices
     struct Node
     {
