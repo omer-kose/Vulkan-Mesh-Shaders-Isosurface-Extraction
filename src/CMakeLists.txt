@@ -35,6 +35,12 @@ file(GLOB_RECURSE SRC_TESTS
 	"Tests/*.cpp"
 )
 
+file(GLOB_RECURSE SRC_UTIL
+	"Util/*.h"
+	"Util/*.hpp"
+	"Util/*.cpp"
+)
+
 # Add the rest of the source files in the src folder
 file(GLOB SRC 
 	"*.h"
@@ -43,10 +49,10 @@ file(GLOB SRC
 )
 
 # Create executable with all found sources
-add_executable(engine ${SRC} ${SRC_CORE} ${SRC_PASS} ${SRC_MATERIALS} ${SRC_SCENES} ${SRC_DATA} ${SRC_TESTS})
+add_executable(engine ${SRC} ${SRC_CORE} ${SRC_PASS} ${SRC_MATERIALS} ${SRC_SCENES} ${SRC_DATA} ${SRC_TESTS} ${SRC_UTIL})
 
 # Add filters for the solution
-source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SRC_CORE} ${SRC_PASS} ${SRC_MATERIALS} ${SRC_SCENES} ${SRC_DATA} ${SRC_TESTS}) 
+source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SRC_CORE} ${SRC_PASS} ${SRC_MATERIALS} ${SRC_SCENES} ${SRC_DATA} ${SRC_TESTS} ${SRC_UTIL}) 
 
 set_property(TARGET engine PROPERTY CXX_STANDARD 20)
 target_compile_definitions(engine PUBLIC GLM_FORCE_DEPTH_ZERO_TO_ONE VK_NO_PROTOTYPES)

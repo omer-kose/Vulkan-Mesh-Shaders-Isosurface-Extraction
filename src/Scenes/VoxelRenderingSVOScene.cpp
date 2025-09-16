@@ -1,4 +1,4 @@
-#include "VoxelRenderingScene.h"
+#include "VoxelRenderingSVOScene.h"
 
 #include <Core/vk_engine.h>
 #include <Core/vk_initializers.h>
@@ -6,9 +6,6 @@
 #include <Core/vk_barriers.h>
 
 #include <Util/Noise.h>
-
-#define OGT_VOX_IMPLEMENTATION
-#include <Data/ogt_vox.h>
 
 #include <fstream>
 
@@ -21,7 +18,7 @@
 #include <execution>
 #include <random>
 
-void VoxelRenderingScene::load(VulkanEngine* engine)
+void VoxelRenderingSVOScene::load(VulkanEngine* engine)
 {
     pEngine = engine;
 
@@ -47,12 +44,12 @@ void VoxelRenderingScene::load(VulkanEngine* engine)
     VoxelRenderingIndirectPass::SetDepthPyramidSizes(HZBDownSamplePass::GetDepthPyramidWidth(), HZBDownSamplePass::GetDepthPyramidHeight());
 }
 
-void VoxelRenderingScene::processSDLEvents(SDL_Event& e)
+void VoxelRenderingSVOScene::processSDLEvents(SDL_Event& e)
 {
     mainCamera.processSDLEvent(e);
 }
 
-void VoxelRenderingScene::handleUI()
+void VoxelRenderingSVOScene::handleUI()
 {
     ImGui::Begin("Voxel Renderer Parameters");
 
@@ -83,7 +80,7 @@ void VoxelRenderingScene::handleUI()
     ImGui::End();
 }
 
-void VoxelRenderingScene::update(float dt)
+void VoxelRenderingSVOScene::update(float dt)
 {
     mainCamera.update(dt);
 
@@ -116,7 +113,7 @@ void VoxelRenderingScene::update(float dt)
     VoxelRenderingIndirectPass::SetCameraZNear(zNear);
 }
 
-void VoxelRenderingScene::drawFrame(VkCommandBuffer cmd)
+void VoxelRenderingSVOScene::drawFrame(VkCommandBuffer cmd)
 {
     if(showChunks)
     {
@@ -126,7 +123,7 @@ void VoxelRenderingScene::drawFrame(VkCommandBuffer cmd)
     VoxelRenderingIndirectPass::ExecuteGraphicsPass(pEngine, cmd, drawChunkCountBuffer.buffer);
 }
 
-void VoxelRenderingScene::performPreRenderPassOps(VkCommandBuffer cmd)
+void VoxelRenderingSVOScene::performPreRenderPassOps(VkCommandBuffer cmd)
 {
     // Clear draw count back to 0 
     vkCmdFillBuffer(cmd, drawChunkCountBuffer.buffer, 0, 4, 0);
@@ -153,18 +150,18 @@ void VoxelRenderingScene::performPreRenderPassOps(VkCommandBuffer cmd)
     vkutil::pipelineBarrier(cmd, 0, 2, cullBarriers, 0, nullptr);
 }
 
-void VoxelRenderingScene::performPostRenderPassOps(VkCommandBuffer cmd)
+void VoxelRenderingSVOScene::performPostRenderPassOps(VkCommandBuffer cmd)
 {
     HZBDownSamplePass::Execute(pEngine, cmd);
     sceneData.prevViewProj = sceneData.viewproj;
 }
 
-VoxelRenderingScene::~VoxelRenderingScene()
+VoxelRenderingSVOScene::~VoxelRenderingSVOScene()
 {
     clearBuffers();
 }
 
-void VoxelRenderingScene::fillRandomVoxelData(std::vector<uint8_t>& grid, float fillProbability, int seed)
+void VoxelRenderingSVOScene::fillRandomVoxelData(std::vector<uint8_t>& grid, float fillProbability, int seed)
 {
     size_t numVoxels = grid.size();
 
@@ -177,7 +174,7 @@ void VoxelRenderingScene::fillRandomVoxelData(std::vector<uint8_t>& grid, float 
     });
 }
 
-void VoxelRenderingScene::generateVoxelScene(std::vector<uint8_t>& grid, int sizeX, int sizeY, int sizeZ)
+void VoxelRenderingSVOScene::generateVoxelScene(std::vector<uint8_t>& grid, int sizeX, int sizeY, int sizeZ)
 {
     size_t numVoxels = sizeX * sizeY * sizeZ;
     grid.resize(numVoxels);
@@ -208,7 +205,7 @@ void VoxelRenderingScene::generateVoxelScene(std::vector<uint8_t>& grid, int siz
         });
 }
 
-const ogt_vox_scene* VoxelRenderingScene::loadVox(const char* voxFilePath) const
+const ogt_vox_scene* VoxelRenderingSVOScene::loadVox(const char* voxFilePath) const
 {
     std::ifstream file(voxFilePath, std::ios::ate | std::ios::binary);
 
@@ -239,7 +236,7 @@ const ogt_vox_scene* VoxelRenderingScene::loadVox(const char* voxFilePath) const
     return scene;
 }
 
-void VoxelRenderingScene::loadData(uint32_t modelID)
+void VoxelRenderingSVOScene::loadData(uint32_t modelID)
 {
     // Make sure that Vulkan is done working with the buffer (not the best way but in this case this scene does not do anything else other than rendering a geometry)
     vkDeviceWaitIdle(pEngine->device);
@@ -335,7 +332,7 @@ void VoxelRenderingScene::loadData(uint32_t modelID)
     ChunkVisualizationPass::SetNumActiveChunks(numActiveChunks);
 }
 
-void VoxelRenderingScene::clearBuffers()
+void VoxelRenderingSVOScene::clearBuffers()
 {
     pEngine->destroyBuffer(voxelChunksBuffer);
     pEngine->destroyBuffer(chunkMetadataBuffer);
