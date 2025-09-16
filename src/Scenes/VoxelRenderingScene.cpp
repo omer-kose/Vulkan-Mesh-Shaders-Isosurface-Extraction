@@ -5,7 +5,7 @@
 #include <Core/vk_pipelines.h>
 #include <Core/vk_barriers.h>
 
-#include <Util/Noise.h>
+#include <Util/VoxelTerrainGenerator.h>
 
 #define OGT_VOX_IMPLEMENTATION
 #include <Data/ogt_vox.h>
@@ -31,7 +31,7 @@ void VoxelRenderingScene::load(VulkanEngine* engine)
     gridLowerCornerPos = glm::vec3(-0.5f);
     gridUpperCornerPos = glm::vec3(0.5f);
 
-    modelNames = { "biome", "monument", "teapot"};
+    modelNames = { "biome", "monument", "teapot", "Voxel Terrain"};
 
     selectedModelID = 0;
     loadData(selectedModelID);
@@ -164,50 +164,6 @@ VoxelRenderingScene::~VoxelRenderingScene()
     clearBuffers();
 }
 
-void VoxelRenderingScene::fillRandomVoxelData(std::vector<uint8_t>& grid, float fillProbability, int seed)
-{
-    size_t numVoxels = grid.size();
-
-    std::mt19937 rng(seed);
-    std::uniform_real_distribution<float> dist(0.0f, 1.0f);
-
-    std::vector<uint8_t> gridData(numVoxels);
-    std::for_each(std::execution::par, grid.begin(), grid.end(), [&](uint8_t& voxelVal){
-        voxelVal = (dist(rng) < fillProbability) ? 1 : 0;
-    });
-}
-
-void VoxelRenderingScene::generateVoxelScene(std::vector<uint8_t>& grid, int sizeX, int sizeY, int sizeZ)
-{
-    size_t numVoxels = sizeX * sizeY * sizeZ;
-    grid.resize(numVoxels);
-
-    std::for_each(std::execution::par, grid.begin(), grid.end(),
-        [&](uint8_t& voxel) {
-            size_t idx = &voxel - &grid[0];
-
-            int x = idx % sizeX;
-            int y = (idx / sizeX) % sizeY;
-            int z = idx / (sizeX * sizeY);
-
-            // Floor and ceiling
-            if(z == 0 || z == sizeZ - 1) { voxel = 1; return; }
-
-            // Pillars
-            if((x % 16 == 0) && (y % 16 == 0)) { voxel = 1; return; }
-
-            // Central sphere
-            float cx = sizeX / 2.0f;
-            float cy = sizeY / 2.0f;
-            float cz = sizeZ / 2.0f;
-            float dist = std::sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy) + (z - cz) * (z - cz));
-            if(dist < sizeX / 8.0f) { voxel = 1; return; }
-
-            // Noise clumps
-            voxel = (noise3D(float(x), float(y), float(z)) > 0.7f) ? 1 : 0;
-        });
-}
-
 const ogt_vox_scene* VoxelRenderingScene::loadVox(const char* voxFilePath) const
 {
     std::ifstream file(voxFilePath, std::ios::ate | std::ios::binary);
@@ -239,6 +195,18 @@ const ogt_vox_scene* VoxelRenderingScene::loadVox(const char* voxFilePath) const
     return scene;
 }
 
+/*
+    Creates and uploads the color table. Also, sets the descriptor binding 
+*/
+void VoxelRenderingScene::createColorPaletteBuffer(const void* colorTable)
+{
+    // Allocate the color palette buffer. 256 maximum colors. Each color is 4 channel 1 byte
+    size_t colorPaletteBufferSize = 256 * 4 * sizeof(uint8_t);
+    colorPaletteBuffer = pEngine->createAndUploadGPUBuffer(colorPaletteBufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, (void*)colorTable);
+    // Set the descriptor set
+    VoxelRenderingIndirectPass::SetColorPaletteBinding(pEngine, colorPaletteBuffer.buffer, colorPaletteBufferSize);
+}
+
 void VoxelRenderingScene::loadData(uint32_t modelID)
 {
     // Make sure that Vulkan is done working with the buffer (not the best way but in this case this scene does not do anything else other than rendering a geometry)
@@ -258,6 +226,25 @@ void VoxelRenderingScene::loadData(uint32_t modelID)
     case 2:
         pVoxScene = loadVox("../../assets/teapot.vox");
         break;
+    case 3:
+    {
+        // Generate random voxel terrain
+        gridSize = glm::uvec3(1024);
+        gridLowerCornerPos = glm::vec3(0.0f);
+        gridUpperCornerPos = glm::vec3(30.0f);
+        TerrainParams params;
+        params.seed = 12345;
+        params.heightFrequency = 1.0f / 128.0f;
+        params.heightAmplitude = 300.0f; // mountains up to ~300 voxels
+        params.enableTerrace = false;
+        params.enableCaves = true;
+        params.enableClouds = true;
+        gridData = generateVoxelTerrain(gridSize, gridLowerCornerPos, gridUpperCornerPos, params);
+        // Build and assign the color palette
+        const std::vector<VoxelColor> colorTable = buildTerrainColorTable(params);
+        createColorPaletteBuffer((const void*)colorTable.data());
+        break;
+    }
     default:
         // fmt::println("No existing model is selected!");
         break;
@@ -274,9 +261,7 @@ void VoxelRenderingScene::loadData(uint32_t modelID)
         std::memcpy(gridData.data(), model->voxel_data, numVoxels);
         // Allocate the color palette buffer. 256 maximum colors. Each color is 4 channel 1 byte
         size_t colorPaletteBufferSize = 256 * 4 * sizeof(uint8_t);
-        colorPaletteBuffer = pEngine->createAndUploadGPUBuffer(colorPaletteBufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, (void*)pVoxScene->palette.color);
-        // Set the descriptor set
-        VoxelRenderingIndirectPass::SetColorPaletteBinding(pEngine, colorPaletteBuffer.buffer, colorPaletteBufferSize);
+        createColorPaletteBuffer((const void*)pVoxScene->palette.color);
         delete pVoxScene;
     }
 

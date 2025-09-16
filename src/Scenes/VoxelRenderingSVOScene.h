@@ -7,6 +7,7 @@
 #include <Pass/HZBDownSamplePass.h>
 
 #include <Data/ChunkedVolumeData.h>
+#include <Data/SVO.h>
 #include <Data/ogt_vox.h>
 
 class VoxelRenderingSVOScene : public Scene

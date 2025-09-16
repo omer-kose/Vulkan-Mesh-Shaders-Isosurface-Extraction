@@ -1230,7 +1230,7 @@ void VulkanEngine::m_initGlobalSceneBuffer()
 void VulkanEngine::m_initSceneInformation()
 {
     // Harcoding the scene names. 
-    sceneNames = { "Organ Visualization", "Voxel Rendering", "Testbed"};
+    sceneNames = { "Organ Visualization", "Voxel Rendering", "Voxel Rendering SVO", "Testbed"};
     selectedSceneID = 0;
     loadScene(selectedSceneID);
 }
@@ -1250,6 +1250,10 @@ void VulkanEngine::loadScene(uint32_t sceneID)
             activeScene->load(this);
             break;
         case 2:
+            activeScene = std::make_unique<VoxelRenderingSVOScene>();
+            activeScene->load(this);
+            break;
+        case 3:
             activeScene = std::make_unique<TestbedScene>();
             activeScene->load(this);
             break;

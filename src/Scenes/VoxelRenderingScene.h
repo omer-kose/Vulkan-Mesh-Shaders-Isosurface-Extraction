@@ -24,9 +24,9 @@ private:
 	void loadData(uint32_t modelID);
 	void clearBuffers();
 
-	void fillRandomVoxelData(std::vector<uint8_t>& grid, float fillProbability = 0.3f, int seed = 42);
-	void generateVoxelScene(std::vector<uint8_t>& grid, int sizeX, int sizeY, int sizeZ);
 	const ogt_vox_scene* loadVox(const char* voxFilePath) const;
+
+	void createColorPaletteBuffer(const void* colorTable);
 private:
 	// Data Loading Params
 	std::vector<std::string> modelNames; // This is for selecting the organ data from UI. The names are hardcoded. 

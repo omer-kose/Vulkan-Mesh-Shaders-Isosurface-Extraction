@@ -14,6 +14,7 @@
 
 #include <Scenes/OrganVisualizationScene.h>
 #include <Scenes/VoxelRenderingScene.h>
+#include <Scenes/VoxelRenderingSVOScene.h>
 #include <Scenes/TestbedScene.h>
 
 struct DeletionQueue
