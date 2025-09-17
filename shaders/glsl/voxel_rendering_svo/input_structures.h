@@ -30,7 +30,7 @@ struct SVONodeGPU
 	vec3 upperCorner;
 	uint8_t   colorIndex;
 	uint8_t   level;      // 0 = finest voxels (we use bricks at leafLevel)
-	uint32_t  brickIndex; // UINT32_MAX => no brick present (mono-color leaf or internal)
+	uint  brickIndex; // UINT32_MAX => no brick present (mono-color leaf or internal)
 };
 
 // simple fixed-size brick type (stores BRICK_SIZE^3 bytes)
@@ -62,7 +62,7 @@ layout(buffer_reference, scalar) readonly buffer BrickBuffer
 
 layout(buffer_reference, scalar) buffer NodeDrawDataBuffer
 {
-	ChunkDrawData nodeDrawData[];
+	NodeDrawData nodeDrawData[];
 };
 
 layout(buffer_reference, scalar) readonly buffer ActiveNodeIndicesBuffer
@@ -117,7 +117,7 @@ struct TaskPayload
 uint voxelValue(uint nodeID, uvec3 idx)
 {
 	uint brickIdx = svoNodeGPUBuffer.nodes[nodeID].brickIndex;
-	return uint(brickBuffer.bricks[brickIdx].voxels[idx.x + shellSize.x * (idx.y + shellSize.y * idx.z)]);
+	return uint(brickBuffer.bricks[brickIdx].voxels[idx.x + BRICK_SIZE * (idx.y + BRICK_SIZE * idx.z)]);
 }
 
 bool projectBox(vec3 bmin, vec3 bmax, float znear, mat4 viewProjection, out vec4 aabb, out float nearestDepth)

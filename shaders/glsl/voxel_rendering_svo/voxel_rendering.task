@@ -5,6 +5,7 @@
 #extension GL_KHR_shader_subgroup_arithmetic : require
 #extension GL_EXT_scalar_block_layout : require
 #extension GL_EXT_shader_8bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
 
 #include "input_structures.h"
 
@@ -36,9 +37,6 @@ void main()
 			uint z = i / (BRICK_SIZE * BRICK_SIZE);
 
 			uvec3 voxelID = uvec3(firstVoxelID_X + x, firstVoxelID_Y + y, firstVoxelID_Z + z);
-
-			// Skip voxels outside the grid
-			if(any(greaterThanEqual(voxelID, shellSize))) continue;
 
 			uint value = voxelValue(drawData.nodeID, voxelID); 
 			bool accept = value > 0; // Voxel is accepted if occupied  
