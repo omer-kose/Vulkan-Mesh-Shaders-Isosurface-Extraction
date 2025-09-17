@@ -50,8 +50,9 @@ public:
     const std::vector<SVONodeGPU>& getFlatGPUNodes() const { return flatNodesGPU; }
     const std::vector<Brick>& getBricks() const { return bricks; }
     std::vector<uint32_t> selectNodes(const glm::vec3& cameraPos, float lodBaseDist) const;
-    std::vector<uint32_t> selecNodesScreenSpace(const glm::vec3& cameraPos, float fovY, float aspect, uint32_t screenHeight, float pixelThreshold) const;
+    std::vector<uint32_t> selectNodesScreenSpace(const glm::vec3& cameraPos, float fovY, float aspect, uint32_t screenHeight, float pixelThreshold) const;
     size_t estimateMemoryUsageBytes() const;
+    uint32_t getLeafLevel() const;
 
     // For unit tests
     friend class SVOUnitTests;

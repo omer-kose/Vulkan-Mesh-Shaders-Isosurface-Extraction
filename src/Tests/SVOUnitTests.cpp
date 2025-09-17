@@ -576,7 +576,7 @@ void SVOUnitTests::testLargeWorldScreenSpaceLOD()
         for(size_t c = 0; c < cameras.size(); ++c) {
             auto camPos = cameras[c];
 
-            auto selected = svo.selecNodesScreenSpace(camPos, glm::radians(45.0f), 16.0f / 9.0f, 1080, pixThr);
+            auto selected = svo.selectNodesScreenSpace(camPos, glm::radians(45.0f), 16.0f / 9.0f, 1080, pixThr);
 
             // Histogram by node.level
             std::map<uint8_t, size_t> levelHist;
@@ -740,7 +740,7 @@ void SVOUnitTests::testLargeWorldScreenSpaceLOD()
 //        auto cam = cameraPositions[i];
 //
 //        auto startSel = std::chrono::high_resolution_clock::now();
-//        auto selected = svo.selecNodesScreenSpace(
+//        auto selected = svo.selectNodesScreenSpace(
 //            cam, fovY, aspect, screenHeight, pixelThreshold);
 //        auto endSel = std::chrono::high_resolution_clock::now();
 //        double ms = std::chrono::duration<double, std::milli>(endSel - startSel).count();
@@ -831,7 +831,7 @@ void SVOUnitTests::testLargeWorldScreenSpaceLOD()
 //            const glm::vec3& cam = cameras[ci];
 //
 //            auto s_st = std::chrono::high_resolution_clock::now();
-//            auto selected = svo.selecNodesScreenSpace(cam, fovY, aspect, screenH, pixelThreshold);
+//            auto selected = svo.selectNodesScreenSpace(cam, fovY, aspect, screenH, pixelThreshold);
 //            auto s_en = std::chrono::high_resolution_clock::now();
 //            double selMs = std::chrono::duration<double, std::milli>(s_en - s_st).count();
 //
@@ -873,8 +873,8 @@ void SVOUnitTests::testLargeWorldScreenSpaceLOD()
 //    // Comparative summary per camera
 //    fmt::println("\n--- Comparative summary (selected node counts per camera) ---");
 //    for(size_t ci = 0; ci < cameras.size(); ++ci) {
-//        auto selA = svoNoCollapse.selecNodesScreenSpace(cameras[ci], fovY, aspect, screenH, pixelThreshold);
-//        auto selB = svoCollapse.selecNodesScreenSpace(cameras[ci], fovY, aspect, screenH, pixelThreshold);
+//        auto selA = svoNoCollapse.selectNodesScreenSpace(cameras[ci], fovY, aspect, screenH, pixelThreshold);
+//        auto selB = svoCollapse.selectNodesScreenSpace(cameras[ci], fovY, aspect, screenH, pixelThreshold);
 //        fmt::println("Camera {} : no-collapse = {}, collapsed = {}, ratio(collapsed/no) = {:.3f}",
 //            ci, selA.size(), selB.size(), (selA.size() == 0 ? 0.0 : double(selB.size()) / double(selA.size())));
 //    }
@@ -1026,7 +1026,7 @@ void SVOUnitTests::testLargeWorldScreenSpaceLOD()
 //            const auto& cam = cameras[ci];
 //            for(float thr : pixelThresholds) {
 //                auto st = std::chrono::high_resolution_clock::now();
-//                auto sel = svo.selecNodesScreenSpace(cam, fovY, aspect, screenH, thr);
+//                auto sel = svo.selectNodesScreenSpace(cam, fovY, aspect, screenH, thr);
 //                auto en = std::chrono::high_resolution_clock::now();
 //                double ms = std::chrono::duration<double, std::milli>(en - st).count();
 //
@@ -1063,7 +1063,7 @@ void SVOUnitTests::testLargeWorldScreenSpaceLOD()
 //        glm::vec3 worldCenter = (glm::vec3(float(x) + 0.5f, float(y) + 0.5f, float(z) + 0.5f) / float(size)) * (wu - wl) + wl;
 //
 //        // run selection with a very small pixelThreshold so selected nodes include leaf-level nodes around the point
-//        auto sel = svoCollapsed.selecNodesScreenSpace(worldCenter + glm::vec3(0.0f, 0.0f, 0.0f), fovY, aspect, screenH, 2.0f);
+//        auto sel = svoCollapsed.selectNodesScreenSpace(worldCenter + glm::vec3(0.0f, 0.0f, 0.0f), fovY, aspect, screenH, 2.0f);
 //
 //        // find a selected node that contains this center
 //        bool ok = false;
@@ -1178,11 +1178,11 @@ void SVOUnitTests::testLargeWorldScreenSpaceLOD()
 //            auto camPos = cameras[c];
 //
 //            // Non-collapsed
-//            auto selectedNo = svoNoCollapse.selecNodesScreenSpace(camPos, glm::radians(60.0f), 16.0f / 9.0f, 1080, pixThr);
+//            auto selectedNo = svoNoCollapse.selectNodesScreenSpace(camPos, glm::radians(60.0f), 16.0f / 9.0f, 1080, pixThr);
 //            fmt::print("Camera {} (NoCollapse) -> selected {} nodes\n", c, selectedNo.size());
 //
 //            // Collapsed
-//            auto selectedCol = svoCollapse.selecNodesScreenSpace(camPos, glm::radians(60.0f), 16.0f / 9.0f, 1080, pixThr);
+//            auto selectedCol = svoCollapse.selectNodesScreenSpace(camPos, glm::radians(60.0f), 16.0f / 9.0f, 1080, pixThr);
 //            fmt::print("Camera {} (Collapsed) -> selected {} nodes\n", c, selectedCol.size());
 //        }
 //    }

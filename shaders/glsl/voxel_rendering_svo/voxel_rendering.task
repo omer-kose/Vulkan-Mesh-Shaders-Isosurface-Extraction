@@ -30,15 +30,20 @@ void main()
 
 		// Loop through the voxels in the block with all the threads. When BRICK_VOLUME is 8x8x8, it is 16 loops a bit too much work but preferred thread size for task shader is 32 by spec
 		uint count = 0;
+		bool monoColor = node.brickIndex == 0xFFFFFFFFu; // if leaf is collapsed to mono color its brick index is UINT_MAX
+		uint value = monoColor ? node.colorIndex : 0;
 		for (uint i = threadID; i < BRICK_VOLUME; i += 32)
 		{
 			uint x = i % BRICK_SIZE;
 			uint y = (i / BRICK_SIZE) % BRICK_SIZE;
 			uint z = i / (BRICK_SIZE * BRICK_SIZE);
 
-			uvec3 voxelID = uvec3(firstVoxelID_X + x, firstVoxelID_Y + y, firstVoxelID_Z + z);
+			if(!monoColor)
+			{
+				uvec3 voxelID = uvec3(firstVoxelID_X + x, firstVoxelID_Y + y, firstVoxelID_Z + z);
+				value = voxelValue(drawData.nodeID, voxelID); 
+			}
 
-			uint value = voxelValue(drawData.nodeID, voxelID); 
 			bool accept = value > 0; // Voxel is accepted if occupied  
 			uint payloadIndex = subgroupExclusiveAdd(uint(accept));
 

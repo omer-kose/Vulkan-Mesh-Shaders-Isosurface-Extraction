@@ -1056,6 +1056,7 @@ void VulkanEngine::m_initPasses()
     HZBDownSamplePass::Init(this);
     MarchingCubesIndirectPass::Init(this);
     VoxelRenderingIndirectPass::Init(this);
+    VoxelRenderingIndirectSVOPass::Init(this);
 }
 
 void VulkanEngine::m_clearPassResources()
@@ -1066,6 +1067,7 @@ void VulkanEngine::m_clearPassResources()
     HZBDownSamplePass::ClearResources(this);
     MarchingCubesIndirectPass::ClearResources(this);
     VoxelRenderingIndirectPass::ClearResources(this);
+    VoxelRenderingIndirectSVOPass::ClearResources(this);
 }
 
 void VulkanEngine::m_initMaterialLayouts()

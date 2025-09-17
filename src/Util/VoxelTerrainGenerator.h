@@ -59,7 +59,7 @@ struct VoxelColor
 
 static inline uint8_t clamp8(int v) { return (uint8_t)std::min(255, std::max(0, v)); }
 
-std::vector<uint8_t> generateVoxelTerrain(
+inline std::vector<uint8_t> generateVoxelTerrain(
     const glm::uvec3& gridSize,
     const glm::vec3& worldLower,
     const glm::vec3& worldUpper,

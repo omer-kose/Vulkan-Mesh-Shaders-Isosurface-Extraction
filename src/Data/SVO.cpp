@@ -134,6 +134,12 @@ void SVO::buildTree()
                     uint32_t nodeIdx = static_cast<uint32_t>(nodes.size() - 1);
                     nodes[nodeIdx].brickIndex = static_cast<int32_t>(bricks.size() - 1);
                     levelMaps[leafLevel][brickCoord] = nodeIdx;
+                    // Leaves will be processed in voxel level so the value stored in the brick is important. However, for each leaf, a representative node color must be selected so that it can propogate to the parents
+                    std::array<int, 256> counts; counts.fill(0);
+                    for(auto c : b.voxels) if(c) counts[c]++;
+                    int best = 0; uint8_t bestColor = 0;
+                    for(int c = 0; c < 256; ++c) if(counts[c] > best) { best = counts[c]; bestColor = static_cast<uint8_t>(c); }
+                    nodes[nodeIdx].color = bestColor;
                 }
             }
 
@@ -302,7 +308,7 @@ std::vector<uint32_t> SVO::selectNodes(const glm::vec3& cameraPos, float lodBase
     return result;
 }
 
-std::vector<uint32_t> SVO::selecNodesScreenSpace(const glm::vec3& cameraPos, float fovY, float aspect, uint32_t screenHeight, float pixelThreshold) const
+std::vector<uint32_t> SVO::selectNodesScreenSpace(const glm::vec3& cameraPos, float fovY, float aspect, uint32_t screenHeight, float pixelThreshold) const
 {
     // Pixels-per-world-unit factor at distance = 1
     const float screenFactor = float(screenHeight) / (2.0f * glm::tan(fovY * 0.5f));
@@ -372,4 +378,9 @@ size_t SVO::estimateMemoryUsageBytes() const
     memory += flatNodesGPU.size() * sizeof(SVONodeGPU);
     memory += bricks.size() * sizeof(Brick);
     return memory;
+}
+
+uint32_t SVO::getLeafLevel() const
+{
+    return leafLevel;
 }

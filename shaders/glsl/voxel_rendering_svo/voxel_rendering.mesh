@@ -155,7 +155,8 @@ void main()
 				break;
 		}
 
-        bool blocked = isLeaf ? neighborOccupied(nodeID, uvec3(firstVoxelID_X, firstVoxelID_Y, firstVoxelID_Z), threadID) : false;
+        // bool blocked = isLeaf ? neighborOccupied(nodeID, uvec3(firstVoxelID_X, firstVoxelID_Y, firstVoxelID_Z), threadID) : false;
+        bool blocked = false;
         keep = cameraSide && !blocked;
 	}
 

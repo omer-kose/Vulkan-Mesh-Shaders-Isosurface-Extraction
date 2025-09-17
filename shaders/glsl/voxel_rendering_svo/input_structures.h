@@ -18,7 +18,6 @@ layout(set = 1, binding = 0, scalar) uniform Palette
 #define BRICK_SIZE 8  // brick size of the leaf 
 
 // Derived Constants
-#define BRICK_PLUS_1 (BRICK_SIZE + 1)  // N+1 samples needed for N cubes
 #define BRICK_VOLUME (BRICK_SIZE * BRICK_SIZE * BRICK_SIZE)
 
 /*
@@ -117,6 +116,12 @@ struct TaskPayload
 uint voxelValue(uint nodeID, uvec3 idx)
 {
 	uint brickIdx = svoNodeGPUBuffer.nodes[nodeID].brickIndex;
+
+	const uint NO_BRICK = 0xFFFFFFFFu;
+	if(brickIdx == NO_BRICK) {
+		return uint(svoNodeGPUBuffer.nodes[nodeID].colorIndex);
+	}
+
 	return uint(brickBuffer.bricks[brickIdx].voxels[idx.x + BRICK_SIZE * (idx.y + BRICK_SIZE * idx.z)]);
 }
 

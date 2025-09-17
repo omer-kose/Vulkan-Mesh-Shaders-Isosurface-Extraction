@@ -5,7 +5,7 @@
 #include <Core/vk_pipelines.h>
 #include <Core/vk_barriers.h>
 
-#include <Util/Noise.h>
+#include <Util/VoxelTerrainGenerator.h>
 
 #include <fstream>
 
@@ -22,13 +22,10 @@ void VoxelRenderingSVOScene::load(VulkanEngine* engine)
 {
     pEngine = engine;
 
-    chunkSize = glm::uvec3(32, 32, 32);
-    blockSize = 4;
-    blocksPerChunk = (chunkSize.x * chunkSize.y * chunkSize.z) / (blockSize * blockSize * blockSize);
     gridLowerCornerPos = glm::vec3(-0.5f);
     gridUpperCornerPos = glm::vec3(0.5f);
 
-    modelNames = { "biome", "monument", "teapot"};
+    modelNames = { "biome", "monument", "teapot", "Voxel Terrain" };
 
     selectedModelID = 0;
     loadData(selectedModelID);
@@ -37,11 +34,16 @@ void VoxelRenderingSVOScene::load(VulkanEngine* engine)
     mainCamera = Camera(glm::vec3(0.0f, 0.0f, 2.0f), 0.0f, 0.0f);
     mainCamera.setSpeed(2.0f);
 
+    VkExtent2D windowExtent = pEngine->getWindowExtent();
+    fov = glm::radians(45.0f);
+    aspectRatio = float(windowExtent.width) / float(windowExtent.height);
+    LODPixelThreshold = 1.0f;
+
     // Set attachment clear color
     pEngine->setColorAttachmentClearColor(VkClearValue{ 0.6f, 0.9f, 1.0f, 1.0f });
 
-    VoxelRenderingIndirectPass::SetDepthPyramidBinding(pEngine, HZBDownSamplePass::GetDepthPyramidImageView(), HZBDownSamplePass::GetDepthPyramidSampler());
-    VoxelRenderingIndirectPass::SetDepthPyramidSizes(HZBDownSamplePass::GetDepthPyramidWidth(), HZBDownSamplePass::GetDepthPyramidHeight());
+    VoxelRenderingIndirectSVOPass::SetDepthPyramidBinding(pEngine, HZBDownSamplePass::GetDepthPyramidImageView(), HZBDownSamplePass::GetDepthPyramidSampler());
+    VoxelRenderingIndirectSVOPass::SetDepthPyramidSizes(HZBDownSamplePass::GetDepthPyramidWidth(), HZBDownSamplePass::GetDepthPyramidHeight());
 }
 
 void VoxelRenderingSVOScene::processSDLEvents(SDL_Event& e)
@@ -76,7 +78,7 @@ void VoxelRenderingSVOScene::handleUI()
             ImGui::EndCombo();
         }
     
-    ImGui::Checkbox("Show Chunks", &showChunks);
+    ImGui::SliderFloat("LOD Pixel Threshold", &LODPixelThreshold, 1.0f, 32.0f);
     ImGui::End();
 }
 
@@ -86,14 +88,11 @@ void VoxelRenderingSVOScene::update(float dt)
 
     sceneData.cameraPos = mainCamera.position;
     sceneData.view = mainCamera.getViewMatrix();
-    constexpr float fov = glm::radians(45.0f);
     constexpr float zNear = 0.01f;
     constexpr float zFar = 10000.f;
 
-    VkExtent2D windowExtent = pEngine->getWindowExtent();
 
     const float f = 1.0f / tanf(fov / 2.0f);;
-    const float aspectRatio = float(windowExtent.width) / float(windowExtent.height);
     sceneData.proj = glm::mat4(
         f / aspectRatio, 0.0f, 0.0f, 0.0f,
         0.0f, -f, 0.0f, 0.0f, // inverting y inplace for Vulkan's convention
@@ -110,39 +109,54 @@ void VoxelRenderingSVOScene::update(float dt)
     sceneData.sunlightDirection = glm::vec4(directionalLightDir, 1.0f);
 
     // Update the MC params (cheap operation but could be checked if there is any change)
-    VoxelRenderingIndirectPass::SetCameraZNear(zNear);
+    VoxelRenderingIndirectSVOPass::SetCameraZNear(zNear);
 }
 
 void VoxelRenderingSVOScene::drawFrame(VkCommandBuffer cmd)
 {
-    if(showChunks)
-    {
-        ChunkVisualizationPass::Execute(pEngine, cmd, numActiveChunks, 3.0f);
-    }
-
-    VoxelRenderingIndirectPass::ExecuteGraphicsPass(pEngine, cmd, drawChunkCountBuffer.buffer);
+    VoxelRenderingIndirectSVOPass::ExecuteGraphicsPass(pEngine, cmd, drawNodeCountBuffer.buffer);
 }
 
 void VoxelRenderingSVOScene::performPreRenderPassOps(VkCommandBuffer cmd)
 {
+    // Fetch nodes to be processed this frame wrt camera (LOD)
+    const std::vector<uint32_t> activeNodes = pSvo->selectNodesScreenSpace(mainCamera.position, fov, aspectRatio, pEngine->getWindowExtent().height, LODPixelThreshold);
+    size_t numActiveNodes = activeNodes.size();
+    VoxelRenderingIndirectSVOPass::SetNumActiveNodes(numActiveNodes);
+    uint32_t* pStagingBuffer = (uint32_t*)pEngine->getMappedStagingBufferData(activeNodeIndicesStagingBuffer);
+    std::memcpy(pStagingBuffer, activeNodes.data(), numActiveNodes * sizeof(uint32_t));
+
+    // issue buffer copy
+    VkBufferCopy copy{};
+    copy.dstOffset = 0;
+    copy.srcOffset = 0;
+    copy.size = numActiveNodes * sizeof(uint32_t);
+
+    vkCmdCopyBuffer(cmd, activeNodeIndicesStagingBuffer.buffer, activeNodeIndicesBuffer.buffer, 1, &copy);
+    // Synchronize with a barrier
+    VkBufferMemoryBarrier2 copyActiveChunksBarrier = vkutil::bufferBarrier(activeNodeIndicesBuffer.buffer,
+        VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
+
+    vkutil::pipelineBarrier(cmd, 0, 1, &copyActiveChunksBarrier, 0, nullptr);
+
     // Clear draw count back to 0 
-    vkCmdFillBuffer(cmd, drawChunkCountBuffer.buffer, 0, 4, 0);
-    vkCmdFillBuffer(cmd, drawChunkCountBuffer.buffer, 4, 8, 1); // set y and z group numbers to 1
-    VkBufferMemoryBarrier2 fillBarrier = vkutil::bufferBarrier(drawChunkCountBuffer.buffer,
+    vkCmdFillBuffer(cmd, drawNodeCountBuffer.buffer, 0, 4, 0);
+    vkCmdFillBuffer(cmd, drawNodeCountBuffer.buffer, 4, 8, 1); // set y and z group numbers to 1
+    VkBufferMemoryBarrier2 fillBarrier = vkutil::bufferBarrier(drawNodeCountBuffer.buffer,
         VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT);
 
     vkutil::pipelineBarrier(cmd, 0, 1, &fillBarrier, 0, nullptr);
 
     // Compute Culling and Preparing Indirect Commands Pass
-    size_t totalTasks = chunkedVolumeData->getNumChunksFlat() * blocksPerChunk;
-    VoxelRenderingIndirectPass::ExecuteComputePass(pEngine, cmd, totalTasks);
+    VoxelRenderingIndirectSVOPass::ExecuteComputePass(pEngine, cmd);
     // Synchronize and Protect drawData and drawCount buffers before indirect dispatch
     VkBufferMemoryBarrier2 cullBarriers[] = {
-        vkutil::bufferBarrier(chunkDrawDataBuffer.buffer,
+        vkutil::bufferBarrier(nodeDrawDataBuffer.buffer,
         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_WRITE_BIT,
-        VK_PIPELINE_STAGE_TASK_SHADER_BIT_EXT | VK_PIPELINE_STAGE_MESH_SHADER_BIT_EXT,  VK_ACCESS_SHADER_READ_BIT),
-        vkutil::bufferBarrier(drawChunkCountBuffer.buffer,
+        VK_PIPELINE_STAGE_TASK_SHADER_BIT_EXT | VK_PIPELINE_STAGE_MESH_SHADER_BIT_EXT, VK_ACCESS_SHADER_READ_BIT),
+        vkutil::bufferBarrier(drawNodeCountBuffer.buffer,
         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_WRITE_BIT,
         VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT, VK_ACCESS_INDIRECT_COMMAND_READ_BIT),
     };
@@ -159,50 +173,6 @@ void VoxelRenderingSVOScene::performPostRenderPassOps(VkCommandBuffer cmd)
 VoxelRenderingSVOScene::~VoxelRenderingSVOScene()
 {
     clearBuffers();
-}
-
-void VoxelRenderingSVOScene::fillRandomVoxelData(std::vector<uint8_t>& grid, float fillProbability, int seed)
-{
-    size_t numVoxels = grid.size();
-
-    std::mt19937 rng(seed);
-    std::uniform_real_distribution<float> dist(0.0f, 1.0f);
-
-    std::vector<uint8_t> gridData(numVoxels);
-    std::for_each(std::execution::par, grid.begin(), grid.end(), [&](uint8_t& voxelVal){
-        voxelVal = (dist(rng) < fillProbability) ? 1 : 0;
-    });
-}
-
-void VoxelRenderingSVOScene::generateVoxelScene(std::vector<uint8_t>& grid, int sizeX, int sizeY, int sizeZ)
-{
-    size_t numVoxels = sizeX * sizeY * sizeZ;
-    grid.resize(numVoxels);
-
-    std::for_each(std::execution::par, grid.begin(), grid.end(),
-        [&](uint8_t& voxel) {
-            size_t idx = &voxel - &grid[0];
-
-            int x = idx % sizeX;
-            int y = (idx / sizeX) % sizeY;
-            int z = idx / (sizeX * sizeY);
-
-            // Floor and ceiling
-            if(z == 0 || z == sizeZ - 1) { voxel = 1; return; }
-
-            // Pillars
-            if((x % 16 == 0) && (y % 16 == 0)) { voxel = 1; return; }
-
-            // Central sphere
-            float cx = sizeX / 2.0f;
-            float cy = sizeY / 2.0f;
-            float cz = sizeZ / 2.0f;
-            float dist = std::sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy) + (z - cz) * (z - cz));
-            if(dist < sizeX / 8.0f) { voxel = 1; return; }
-
-            // Noise clumps
-            voxel = (noise3D(float(x), float(y), float(z)) > 0.7f) ? 1 : 0;
-        });
 }
 
 const ogt_vox_scene* VoxelRenderingSVOScene::loadVox(const char* voxFilePath) const
@@ -236,6 +206,18 @@ const ogt_vox_scene* VoxelRenderingSVOScene::loadVox(const char* voxFilePath) co
     return scene;
 }
 
+/*
+    Creates and uploads the color table. Also, sets the descriptor binding
+*/
+void VoxelRenderingSVOScene::createColorPaletteBuffer(const void* colorTable)
+{
+    // Allocate the color palette buffer. 256 maximum colors. Each color is 4 channel 1 byte
+    size_t colorPaletteBufferSize = 256 * 4 * sizeof(uint8_t);
+    colorPaletteBuffer = pEngine->createAndUploadGPUBuffer(colorPaletteBufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, (void*)colorTable);
+    // Set the descriptor set
+    VoxelRenderingIndirectSVOPass::SetColorPaletteBinding(pEngine, colorPaletteBuffer.buffer, colorPaletteBufferSize);
+}
+
 void VoxelRenderingSVOScene::loadData(uint32_t modelID)
 {
     // Make sure that Vulkan is done working with the buffer (not the best way but in this case this scene does not do anything else other than rendering a geometry)
@@ -255,6 +237,25 @@ void VoxelRenderingSVOScene::loadData(uint32_t modelID)
     case 2:
         pVoxScene = loadVox("../../assets/teapot.vox");
         break;
+    case 3:
+    {
+        // Generate random voxel terrain
+        gridSize = glm::uvec3(256);
+        gridLowerCornerPos = glm::vec3(-1.0f);
+        gridUpperCornerPos = glm::vec3(1.0f);
+        TerrainParams params;
+        params.seed = 12345;
+        params.heightFrequency = 1.0f / 128.0f;
+        params.heightAmplitude = 300.0f; // mountains up to ~300 voxels
+        params.enableTerrace = false;
+        params.enableCaves = true;
+        params.enableClouds = true;
+        gridData = generateVoxelTerrain(gridSize, gridLowerCornerPos, gridUpperCornerPos, params);
+        // Build and assign the color palette
+        const std::vector<VoxelColor> colorTable = buildTerrainColorTable(params);
+        createColorPaletteBuffer((const void*)colorTable.data());
+        break;
+    }
     default:
         // fmt::println("No existing model is selected!");
         break;
@@ -269,75 +270,51 @@ void VoxelRenderingSVOScene::loadData(uint32_t modelID)
         size_t numVoxels = gridSize.x * gridSize.y * gridSize.z;
         gridData.resize(numVoxels);
         std::memcpy(gridData.data(), model->voxel_data, numVoxels);
-        // Allocate the color palette buffer. 256 maximum colors. Each color is 4 channel 1 byte
-        size_t colorPaletteBufferSize = 256 * 4 * sizeof(uint8_t);
-        colorPaletteBuffer = pEngine->createAndUploadGPUBuffer(colorPaletteBufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, (void*)pVoxScene->palette.color);
-        // Set the descriptor set
-        VoxelRenderingIndirectPass::SetColorPaletteBinding(pEngine, colorPaletteBuffer.buffer, colorPaletteBufferSize);
+        createColorPaletteBuffer((const void*)pVoxScene->palette.color);
         delete pVoxScene;
     }
 
-    // TODO: Testing random data
-    // gridSize = glm::uvec3(512);
-    // generateVoxelScene(gridData, gridSize.x, gridSize.y, gridSize.z);
-    // gridData.resize(gridSize.x * gridSize.y * gridSize.z);
-    //fillRandomVoxelData(gridData);
-
-    // Create the chunked version of the grid
-    chunkedVolumeData = std::make_unique<ChunkedVolumeData>(pEngine, gridData, gridSize, chunkSize, gridLowerCornerPos, gridUpperCornerPos);
+    // Create SVO from the grid data
+    pSvo = std::make_unique<SVO>(gridData, gridSize, gridLowerCornerPos, gridUpperCornerPos);
     gridData.clear();
 
-    // Allocate the chunk buffer on GPU and load the whole data at the beginning only once
-    size_t numChunks = chunkedVolumeData->getNumChunksFlat();
-    size_t voxelChunksBufferSize = numChunks * chunkedVolumeData->getTotalNumPointsPerChunk() * sizeof(uint8_t);
-    voxelChunksBuffer = pEngine->uploadStagingBuffer(chunkedVolumeData->getStagingBuffer(), voxelChunksBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
-    voxelChunksBufferBaseAddress = pEngine->getBufferDeviceAddress(voxelChunksBuffer.buffer);
+    // Allocate the flat SVO GPU Node buffer and upload it once
+    const std::vector<SVONodeGPU> gpuNodes = pSvo->getFlatGPUNodes();
+    size_t svoNodeGPUBufferSize = gpuNodes.size() * sizeof(SVONodeGPU);
+    svoNodeGPUBuffer = pEngine->createAndUploadGPUBuffer(svoNodeGPUBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, gpuNodes.data());
 
-    // Once the data is loaded staging buffer is no longer needed
-    chunkedVolumeData->destroyStagingBuffer(pEngine);
+    // Allocate and upload Bricks to the gpu onces
+    const std::vector<Brick> bricks = pSvo->getBricks();
+    size_t brickBufferSize = bricks.size() * sizeof(Brick);
+    brickBuffer = pEngine->createAndUploadGPUBuffer(brickBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, bricks.data());
+
+    // TODO: Once data is upload no need to store flat gpu nodes in the memory (also the bricks? they are not needed for LOD selection I think)
+    // pSvo->clearFlatGPUNodes();
+    // pSvo->clearBricks();
 
     // Allocate Indirect Buffers
-    const std::vector<VolumeChunk>& chunks = chunkedVolumeData->getChunks();
-    std::vector<VoxelRenderingIndirectPass::ChunkMetadata> chunkMetadata(numChunks);
-    {
-        std::for_each(std::execution::par, chunkMetadata.begin(), chunkMetadata.end(), [&](VoxelRenderingIndirectPass::ChunkMetadata& metadata) {
-            size_t i = &metadata - chunkMetadata.data();
-            metadata.lowerCornerPos = chunks[i].lowerCornerPos;
-            metadata.upperCornerPos = chunks[i].upperCornerPos;
-            metadata.voxelBufferDeviceAddress = voxelChunksBufferBaseAddress + chunks[i].stagingBufferOffset;
-        });
-    }
-    chunkMetadataBuffer = pEngine->createAndUploadGPUBuffer(numChunks * sizeof(VoxelRenderingIndirectPass::ChunkMetadata), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, chunkMetadata.data());
+    size_t maxNumTaskInvocations = gpuNodes.size();
+    nodeDrawDataBuffer = pEngine->createBuffer(maxNumTaskInvocations * sizeof(VoxelRenderingIndirectSVOPass::NodeDrawData), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 
-    size_t maxNumTaskInvocations = numChunks * ((chunkSize.x * chunkSize.y * chunkSize.z) / (blockSize * blockSize * blockSize));
-    chunkDrawDataBuffer = pEngine->createBuffer(maxNumTaskInvocations * sizeof(VoxelRenderingIndirectPass::ChunkDrawData), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+    drawNodeCountBuffer = pEngine->createBuffer(3 * sizeof(uint32_t), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 
-    // Set Active Chunk information. It is enough to set it once as all the chunks are always active in Voxel Renderer for now
-    numActiveChunks = chunkedVolumeData->getNumChunksFlat();
-    std::vector<uint32_t> activeChunks(numActiveChunks);
-    std::iota(activeChunks.begin(), activeChunks.end(), 0);
-    activeChunkIndicesBuffer = pEngine->createAndUploadGPUBuffer(numChunks * sizeof(uint32_t), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, activeChunks.data());
-
-    drawChunkCountBuffer = pEngine->createBuffer(3 * sizeof(uint32_t), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+    activeNodeIndicesStagingBuffer = pEngine->createBuffer(gpuNodes.size() * sizeof(uint32_t), VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
+    activeNodeIndicesBuffer = pEngine->createBuffer(gpuNodes.size() * sizeof(uint32_t), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 
     // Set Voxel Rendering Params
-    VoxelRenderingIndirectPass::SetGridShellSizes(chunkSize, chunkedVolumeData->getShellSize());
-    VoxelRenderingIndirectPass::SetChunkBufferAddresses(pEngine->getBufferDeviceAddress(chunkMetadataBuffer.buffer), pEngine->getBufferDeviceAddress(chunkDrawDataBuffer.buffer), pEngine->getBufferDeviceAddress(drawChunkCountBuffer.buffer));
-    VoxelRenderingIndirectPass::SetNumChunks(chunkedVolumeData->getNumChunksFlat());
-    glm::vec3 voxelSize = (gridUpperCornerPos - gridLowerCornerPos) / glm::vec3(gridSize - 1u);
-    VoxelRenderingIndirectPass::SetVoxelSize(voxelSize);
-
-    // Prepare Chunk Visualization
-    ChunkVisualizationPass::SetChunkBufferAddresses(pEngine->getBufferDeviceAddress(chunkMetadataBuffer.buffer), pEngine->getBufferDeviceAddress(activeChunkIndicesBuffer.buffer));
-    ChunkVisualizationPass::SetNumActiveChunks(numActiveChunks);
+    VoxelRenderingIndirectSVOPass::SetBufferAddresses(pEngine->getBufferDeviceAddress(svoNodeGPUBuffer.buffer), pEngine->getBufferDeviceAddress(brickBuffer.buffer), pEngine->getBufferDeviceAddress(nodeDrawDataBuffer.buffer),
+        pEngine->getBufferDeviceAddress(drawNodeCountBuffer.buffer), pEngine->getBufferDeviceAddress(activeNodeIndicesBuffer.buffer));
+    
+    VoxelRenderingIndirectSVOPass::SetLeafLevel(pSvo->getLeafLevel());
 }
 
 void VoxelRenderingSVOScene::clearBuffers()
 {
-    pEngine->destroyBuffer(voxelChunksBuffer);
-    pEngine->destroyBuffer(chunkMetadataBuffer);
-    pEngine->destroyBuffer(chunkDrawDataBuffer);
-    pEngine->destroyBuffer(activeChunkIndicesBuffer);
-    pEngine->destroyBuffer(drawChunkCountBuffer);
+    pEngine->destroyBuffer(svoNodeGPUBuffer);
+    pEngine->destroyBuffer(brickBuffer);
+    pEngine->destroyBuffer(nodeDrawDataBuffer);
+    pEngine->destroyBuffer(drawNodeCountBuffer);
+    pEngine->destroyBuffer(activeNodeIndicesStagingBuffer);
+    pEngine->destroyBuffer(activeNodeIndicesBuffer);
     pEngine->destroyBuffer(colorPaletteBuffer);
 }
