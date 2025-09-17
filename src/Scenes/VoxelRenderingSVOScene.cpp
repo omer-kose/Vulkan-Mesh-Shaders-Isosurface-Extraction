@@ -240,9 +240,9 @@ void VoxelRenderingSVOScene::loadData(uint32_t modelID)
     case 3:
     {
         // Generate random voxel terrain
-        gridSize = glm::uvec3(256);
-        gridLowerCornerPos = glm::vec3(-1.0f);
-        gridUpperCornerPos = glm::vec3(1.0f);
+        gridSize = glm::uvec3(1024);
+        gridLowerCornerPos = glm::vec3(0.0f);
+        gridUpperCornerPos = glm::vec3(30.0f);
         TerrainParams params;
         params.seed = 12345;
         params.heightFrequency = 1.0f / 128.0f;

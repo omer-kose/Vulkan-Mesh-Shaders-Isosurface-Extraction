@@ -116,12 +116,6 @@ struct TaskPayload
 uint voxelValue(uint nodeID, uvec3 idx)
 {
 	uint brickIdx = svoNodeGPUBuffer.nodes[nodeID].brickIndex;
-
-	const uint NO_BRICK = 0xFFFFFFFFu;
-	if(brickIdx == NO_BRICK) {
-		return uint(svoNodeGPUBuffer.nodes[nodeID].colorIndex);
-	}
-
 	return uint(brickBuffer.bricks[brickIdx].voxels[idx.x + BRICK_SIZE * (idx.y + BRICK_SIZE * idx.z)]);
 }
 

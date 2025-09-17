@@ -87,6 +87,7 @@ void SVO::buildTree()
                 glm::uvec3 baseVoxel = brickCoord * glm::uvec3(BRICK_SIZE); // top-left-back voxel (padded-space)
 
                 Brick b;
+                b.voxels.fill(0);
                 bool anyNonZero = false;
                 bool mono = true; // Mono is true if whole brick in non-empty and a singular color. 
                 uint8_t monoColor = 0;
