@@ -329,9 +329,12 @@ std::vector<uint32_t> SVO::selectNodesScreenSpace(const glm::vec3& cameraPos, fl
         int32_t nodeIdx = stack.back();
         stack.pop_back();
         const Node& n = nodes[nodeIdx];
+        const SVONodeGPU& gn = flatNodesGPU[n.flatIndex];
+        glm::vec3 min = gn.lowerCorner;
+        glm::vec3 max = gn.upperCorner;
 
-        glm::vec3 min, max;
-        computeWorldAABB(n, min, max);
+        //glm::vec3 min, max;
+        //computeWorldAABB(n, min, max);
 
         glm::vec3 center = (min + max) * 0.5f;
         float dist = glm::length(cameraPos - center);

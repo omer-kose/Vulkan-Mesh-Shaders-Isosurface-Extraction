@@ -15,7 +15,7 @@ layout(set = 1, binding = 0, scalar) uniform Palette
 	VoxelColor palette[256];
 };
 
-#define BRICK_SIZE 8  // brick size of the leaf 
+#define BRICK_SIZE 4  // brick size of the leaf 
 
 // Derived Constants
 #define BRICK_VOLUME (BRICK_SIZE * BRICK_SIZE * BRICK_SIZE)

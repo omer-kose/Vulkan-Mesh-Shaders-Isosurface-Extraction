@@ -119,26 +119,31 @@ void VoxelRenderingSVOScene::drawFrame(VkCommandBuffer cmd)
 
 void VoxelRenderingSVOScene::performPreRenderPassOps(VkCommandBuffer cmd)
 {
-    // Fetch nodes to be processed this frame wrt camera (LOD)
-    const std::vector<uint32_t> activeNodes = pSvo->selectNodesScreenSpace(mainCamera.position, fov, aspectRatio, pEngine->getWindowExtent().height, LODPixelThreshold);
-    size_t numActiveNodes = activeNodes.size();
-    VoxelRenderingIndirectSVOPass::SetNumActiveNodes(numActiveNodes);
-    uint32_t* pStagingBuffer = (uint32_t*)pEngine->getMappedStagingBufferData(activeNodeIndicesStagingBuffer);
-    std::memcpy(pStagingBuffer, activeNodes.data(), numActiveNodes * sizeof(uint32_t));
+    if(firstFrame)
+    {
+        // Fetch nodes to be processed this frame wrt camera (LOD)
+        const std::vector<uint32_t> activeNodes = pSvo->selectNodesScreenSpace(mainCamera.position, fov, aspectRatio, pEngine->getWindowExtent().height, LODPixelThreshold);
+        size_t numActiveNodes = activeNodes.size();
+        VoxelRenderingIndirectSVOPass::SetNumActiveNodes(numActiveNodes);
+        uint32_t* pStagingBuffer = (uint32_t*)pEngine->getMappedStagingBufferData(activeNodeIndicesStagingBuffer);
+        std::memcpy(pStagingBuffer, activeNodes.data(), numActiveNodes * sizeof(uint32_t));
 
-    // issue buffer copy
-    VkBufferCopy copy{};
-    copy.dstOffset = 0;
-    copy.srcOffset = 0;
-    copy.size = numActiveNodes * sizeof(uint32_t);
+        // issue buffer copy
+        VkBufferCopy copy{};
+        copy.dstOffset = 0;
+        copy.srcOffset = 0;
+        copy.size = numActiveNodes * sizeof(uint32_t);
 
-    vkCmdCopyBuffer(cmd, activeNodeIndicesStagingBuffer.buffer, activeNodeIndicesBuffer.buffer, 1, &copy);
-    // Synchronize with a barrier
-    VkBufferMemoryBarrier2 copyActiveChunksBarrier = vkutil::bufferBarrier(activeNodeIndicesBuffer.buffer,
-        VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
-        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
+        vkCmdCopyBuffer(cmd, activeNodeIndicesStagingBuffer.buffer, activeNodeIndicesBuffer.buffer, 1, &copy);
+        // Synchronize with a barrier
+        VkBufferMemoryBarrier2 copyActiveChunksBarrier = vkutil::bufferBarrier(activeNodeIndicesBuffer.buffer,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
+            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
 
-    vkutil::pipelineBarrier(cmd, 0, 1, &copyActiveChunksBarrier, 0, nullptr);
+        vkutil::pipelineBarrier(cmd, 0, 1, &copyActiveChunksBarrier, 0, nullptr);
+
+        firstFrame = true;
+    }
 
     // Clear draw count back to 0 
     vkCmdFillBuffer(cmd, drawNodeCountBuffer.buffer, 0, 4, 0);
@@ -306,6 +311,8 @@ void VoxelRenderingSVOScene::loadData(uint32_t modelID)
         pEngine->getBufferDeviceAddress(drawNodeCountBuffer.buffer), pEngine->getBufferDeviceAddress(activeNodeIndicesBuffer.buffer));
     
     VoxelRenderingIndirectSVOPass::SetLeafLevel(pSvo->getLeafLevel());
+
+    firstFrame = true;
 }
 
 void VoxelRenderingSVOScene::clearBuffers()
