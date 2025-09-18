@@ -18,6 +18,9 @@ public:
 
     void setSpeed(float speed_in);
     void setMouseSenstivity(float mouseSensitivity_in);
+
+    bool isDirty() const;
+    void clearDirtyBit();
 public:
     glm::quat orientation;
     glm::vec3 position;
@@ -36,4 +39,6 @@ private:
         bool down = false;
     };
     MovementState movement;
+
+    bool dirtyBit = false;
 };

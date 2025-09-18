@@ -46,6 +46,5 @@ private:
 	float fov;
 	float aspectRatio;
 	float LODPixelThreshold;
-
-	bool firstFrame;
+	float prevLODPixelThreshold; // to trigger LOD selection
 };

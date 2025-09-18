@@ -119,7 +119,9 @@ void VoxelRenderingSVOScene::drawFrame(VkCommandBuffer cmd)
 
 void VoxelRenderingSVOScene::performPreRenderPassOps(VkCommandBuffer cmd)
 {
-    if(firstFrame)
+    bool pixelThresholdChanged = std::fabs(prevLODPixelThreshold - LODPixelThreshold) >= std::numeric_limits<float>::epsilon();
+    bool cameraDirty = mainCamera.isDirty();
+    if(pixelThresholdChanged || cameraDirty)
     {
         // Fetch nodes to be processed this frame wrt camera (LOD)
         const std::vector<uint32_t> activeNodes = pSvo->selectNodesScreenSpace(mainCamera.position, fov, aspectRatio, pEngine->getWindowExtent().height, LODPixelThreshold);
@@ -142,7 +144,15 @@ void VoxelRenderingSVOScene::performPreRenderPassOps(VkCommandBuffer cmd)
 
         vkutil::pipelineBarrier(cmd, 0, 1, &copyActiveChunksBarrier, 0, nullptr);
 
-        firstFrame = true;
+        if(cameraDirty)
+        {
+            mainCamera.clearDirtyBit();
+        }
+
+        if(pixelThresholdChanged)
+        {
+            prevLODPixelThreshold = LODPixelThreshold;
+        }
     }
 
     // Clear draw count back to 0 
@@ -312,7 +322,8 @@ void VoxelRenderingSVOScene::loadData(uint32_t modelID)
     
     VoxelRenderingIndirectSVOPass::SetLeafLevel(pSvo->getLeafLevel());
 
-    firstFrame = true;
+    // Trigger LOD selection
+    prevLODPixelThreshold = -LODPixelThreshold;
 }
 
 void VoxelRenderingSVOScene::clearBuffers()
