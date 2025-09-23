@@ -20,25 +20,25 @@ void main()
 	NodeDrawData drawData = nodeDrawDataBuffer.nodeDrawData[workgroupID];
 	SVONodeGPU node = svoNodeGPUBuffer.nodes[drawData.nodeID];
 
-	if(node.level == leafLevel)
+	bool hasBrick = node.brickIndex != 0xFFFFFFFFu; // if there is no leaf brickIndex is -1 == UINT_MAX
+
+	if(hasBrick)
 	{
-		// Leaf level Brick processing
-
-		// Loop through the voxels in the block with all the threads. When BRICK_VOLUME is 8x8x8, it is 16 loops a bit too much work but preferred thread size for task shader is 32 by spec
+		// Brick processing
+		/*
+			Either leaves or parents of the leaves has bricks namely fine and coarse bricks. They will follow the same kind of processing.
+		*/
+		uint brickSize = (node.level == leafLevel) ? FINE_BRICK_SIZE : COARSE_BRICK_SIZE;
+		uint brickVolume = brickSize * brickSize * brickSize;
 		uint count = 0;
-		bool monoColor = node.brickIndex == 0xFFFFFFFFu; // if leaf is collapsed to mono color its brick index is UINT_MAX
-		uint value = monoColor ? node.colorIndex : 0;
-		for (uint i = threadID; i < BRICK_VOLUME; i += 32)
+		for (uint i = threadID; i < brickVolume; i += 32)
 		{
-			uint x = i % BRICK_SIZE;
-			uint y = (i / BRICK_SIZE) % BRICK_SIZE;
-			uint z = i / (BRICK_SIZE * BRICK_SIZE);
+			uint x = i % brickSize;
+			uint y = (i / brickSize) % brickSize;
+			uint z = i / (brickSize * brickSize);
 
-			if(!monoColor)
-			{
-				uvec3 voxelID = uvec3(x,y,z);
-				value = voxelValue(drawData.nodeID, voxelID); 
-			}
+			uvec3 voxelID = uvec3(x,y,z);
+			uint value = voxelValue(drawData.nodeID, voxelID); 
 
 			bool accept = value > 0; // Voxel is accepted if occupied  
 			uint payloadIndex = subgroupExclusiveAdd(uint(accept));
@@ -46,7 +46,7 @@ void main()
 			if (accept)
 			{
 				// Output a unique meshlet ID for the mesh shader to decode (simply flattening the voxel index in (x,y,z) to a single float which can be easily converted back to voxel index)
-				uint meshletID = x + BRICK_SIZE * (y + BRICK_SIZE * z);
+				uint meshletID = x + brickSize * (y + brickSize * z);
 				taskPayload.meshlets[count + payloadIndex].meshletID = meshletID;
 				taskPayload.meshlets[count + payloadIndex].colorIndex = value;
 				taskPayload.nodeID = drawData.nodeID;
@@ -59,8 +59,7 @@ void main()
 	}
 	else
 	{
-		// TODO: Question: Can this be parallelized over multiple non-leaves? This wastes 31 other threads
-		// Non-leaf nodes don't need processing just fill in the required info with thread 0
+		// Just dispatch a single mesh shader to render it as a single cube of corresponding size
 		if(threadID == 0)
 		{
 			taskPayload.nodeID = drawData.nodeID;

@@ -34,7 +34,7 @@ SVO::SVO(const std::vector<uint8_t>& grid,
     const glm::uvec3& originalGridSize_,
     const glm::vec3& worldLower_,
     const glm::vec3& worldUpper_)
-    : 
+    :
     origGrid(grid),
     originalGridSize(originalGridSize_),
     worldLower(worldLower_),
@@ -53,17 +53,36 @@ SVO::SVO(const std::vector<uint8_t>& grid,
     while(tmp > 1u) { tmp >>= 1u; ++levels; }
     ++levels; // levels is such that level index runs 0..levels-1 and top has size cubeDim/(1<<top) == 1
 
-    // compute brick leaf level (level index where a node covers BRICK_SIZE^3 padded voxels)
-    // level==0 -> node covers 1 voxel. So leafLevel = log2(BRICK_SIZE). Voxel level processing will be done in the task shader
-    int blk = BRICK_SIZE;
-    leafLevel = 0;
-    while((1 << leafLevel) < blk) ++leafLevel;
-    assert((1 << leafLevel) == BRICK_SIZE && "BRICK_SIZE must be a power of two");
+    leafLevel = 2; // No need to compute leafLevel as FINE_BRICK_SIZE is always 4 (leafLevel = log2(FINE_BRICK_SIZE) = log2(4) = 2)
     // sanity: leafLevel must be <= levels-1
     if(leafLevel > levels - 1) leafLevel = levels - 1;
 
     buildTree();
     flattenTree();
+
+    // mips are not needed anymore
+    fineBrickMips.clear();
+}
+
+const std::vector<SVONodeGPU>& SVO::getFlatGPUNodes()
+{
+    return flatNodesGPU;
+}
+
+const std::vector<FineBrick>& SVO::getFineBricks()
+{
+    return fineBricks;
+}
+
+const std::vector<CoarseBrick>& SVO::getCoarseBricks()
+{
+    return coarseBricks;
+}
+
+void SVO::clearBricks()
+{
+    fineBricks.clear();
+    coarseBricks.clear();
 }
 
 void SVO::buildTree()
@@ -73,20 +92,22 @@ void SVO::buildTree()
 
     // Reserve some memory heuristically
     nodes.reserve(1024);
-    bricks.reserve(1024);
+    fineBricks.reserve(1024);
+    fineBrickMips.reserve(1024);
+    coarseBricks.reserve(1024);
 
     // --- Create brick nodes at leafLevel (sweep bricks over padded domain) ---
     glm::uvec3 padded = paddedGridSize;
-    glm::uvec3 brickGrid = glm::uvec3(padded.x / BRICK_SIZE, padded.y / BRICK_SIZE, padded.z / BRICK_SIZE);
+    glm::uvec3 brickGrid = glm::uvec3(padded.x / FINE_BRICK_SIZE, padded.y / FINE_BRICK_SIZE, padded.z / FINE_BRICK_SIZE);
 
     for(uint32_t bz = 0; bz < brickGrid.z; ++bz)
         for(uint32_t by = 0; by < brickGrid.y; ++by)
             for(uint32_t bx = 0; bx < brickGrid.x; ++bx)
             {
                 glm::uvec3 brickCoord(bx, by, bz);     // coord at level = leafLevel
-                glm::uvec3 baseVoxel = brickCoord * glm::uvec3(BRICK_SIZE); // top-left-back voxel (padded-space)
+                glm::uvec3 baseVoxel = brickCoord * glm::uvec3(FINE_BRICK_SIZE); // top-left-back voxel (padded-space)
 
-                Brick b;
+                FineBrick b;
                 b.voxels.fill(0);
                 bool anyNonZero = false;
                 bool mono = true; // Mono is true if whole brick in non-empty and a singular color. 
@@ -94,15 +115,15 @@ void SVO::buildTree()
                 bool firstFound = false;
 
                 // fill brick
-                for(int zz = 0; zz < BRICK_SIZE; ++zz)
-                    for(int yy = 0; yy < BRICK_SIZE; ++yy)
-                        for(int xx = 0; xx < BRICK_SIZE; ++xx)
+                for(int zz = 0; zz < FINE_BRICK_SIZE; ++zz)
+                    for(int yy = 0; yy < FINE_BRICK_SIZE; ++yy)
+                        for(int xx = 0; xx < FINE_BRICK_SIZE; ++xx)
                         {
                             glm::uvec3 v = baseVoxel + glm::uvec3((uint32_t)xx, (uint32_t)yy, (uint32_t)zz);
                             uint8_t val = voxelValue(v);
-                            if(val != 0) 
+                            if(val != 0)
                             {
-                                b.voxels[xx + BRICK_SIZE * (yy + BRICK_SIZE * zz)] = val;
+                                b.voxels[xx + FINE_BRICK_SIZE * (yy + FINE_BRICK_SIZE * zz)] = val;
                                 anyNonZero = true;
                                 if(!firstFound) { monoColor = val; firstFound = true; }
                                 else if(mono && val != monoColor) mono = false;
@@ -114,38 +135,51 @@ void SVO::buildTree()
                             }
                         }
 
-                if(!anyNonZero) 
+                if(!anyNonZero)
                 {
                     continue; // skip empty bricks
                 }
 
                 // If the brick is mono-color and fully covered (no empty voxels), we will not store the brick data; instead create a mono-color node
-                if(mono) 
+                if(mono)
                 {
                     nodes.emplace_back(leafLevel, brickCoord, monoColor);
                     uint32_t nodeIdx = static_cast<uint32_t>(nodes.size() - 1);
                     nodes[nodeIdx].brickIndex = -1; // no brick store (mono color)
                     levelMaps[leafLevel][brickCoord] = nodeIdx;
                 }
-                else 
+                else
                 {
                     // store the brick and create a node referencing it
-                    bricks.push_back(b);
+                    fineBricks.push_back(b);
                     nodes.emplace_back(leafLevel, brickCoord, 0u);
                     uint32_t nodeIdx = static_cast<uint32_t>(nodes.size() - 1);
-                    nodes[nodeIdx].brickIndex = static_cast<int32_t>(bricks.size() - 1);
+                    nodes[nodeIdx].brickIndex = static_cast<int32_t>(fineBricks.size() - 1);
                     levelMaps[leafLevel][brickCoord] = nodeIdx;
                     // Leaves will be processed in voxel level so the value stored in the brick is important. However, for each leaf, a representative node color must be selected so that it can propogate to the parents
                     std::array<int, 256> counts; counts.fill(0);
-                    for(auto c : b.voxels) if(c) counts[c]++;
                     int best = 0; uint8_t bestColor = 0;
-                    for(int c = 0; c < 256; ++c) if(counts[c] > best) { best = counts[c]; bestColor = static_cast<uint8_t>(c); }
+                    for(auto c : b.voxels)
+                    {
+                        if(c)
+                        {
+                            counts[c]++;
+                            if(counts[c] > best)
+                            {
+                                best = counts[c];
+                                bestColor = c;
+                            }
+                        }
+                    }
                     nodes[nodeIdx].color = bestColor;
+
+                    // Downsample the brick once to create its mip.
+                    fineBrickMips.push_back(computeFineBrickMip(b));
                 }
             }
 
     // --- Build upper levels sparsely from level = leafLevel+1 .. levels-1 ---
-    for(int L = leafLevel + 1; L < levels; ++L) 
+    for(int L = leafLevel + 1; L < levels; ++L)
     {
         // snapshot child entries to avoid invalidation issues
         std::vector<std::pair<glm::uvec3, uint32_t>> childEntries;
@@ -154,7 +188,7 @@ void SVO::buildTree()
 
         // collect children per parent coordinate
         std::map<glm::uvec3, std::vector<uint32_t>, UVec3Comparator> parentChildren;
-        for(const auto& entry : childEntries) 
+        for(const auto& entry : childEntries)
         {
             glm::uvec3 childCoord = entry.first;      // coord at level L-1
             uint32_t childIdx = entry.second;
@@ -163,7 +197,7 @@ void SVO::buildTree()
         }
 
         // create parents
-        for(auto& pc : parentChildren) 
+        for(auto& pc : parentChildren)
         {
             glm::uvec3 parentCoord = pc.first;
             const std::vector<uint32_t>& childrenIdx = pc.second;
@@ -174,7 +208,7 @@ void SVO::buildTree()
             Node& parent = nodes[parentIdx];
 
             // link explicit children
-            for(uint32_t childIdx : childrenIdx) 
+            for(uint32_t childIdx : childrenIdx)
             {
                 Node& child = nodes[childIdx];
                 // childCoord at level L-1:
@@ -186,18 +220,100 @@ void SVO::buildTree()
                 child.parentIndex = static_cast<int32_t>(parentIdx);
             }
 
-
-            // compute majority color fallback 
             std::array<int, 256> counts; counts.fill(0);
-            for(int i = 0; i < 8; ++i) 
-            {
-                int32_t cidx = parent.children[i];
-                if(cidx >= 0) counts[nodes[cidx].color]++;
-            }
             int best = 0; uint8_t bestColor = 0;
-            for(int c = 0; c < 256; ++c) if(counts[c] > best) { best = counts[c]; bestColor = static_cast<uint8_t>(c); }
-            parent.color = bestColor;
-            
+            if(L == leafLevel + 1)
+            {
+                CoarseBrick cb;
+                // at level three create its coarse 2x2x2 brick
+                for(uint32_t z = 0; z < COARSE_BRICK_SIZE; ++z)
+                    for(uint32_t y = 0; y < COARSE_BRICK_SIZE; ++y)
+                        for(uint32_t x = 0; x < COARSE_BRICK_SIZE; ++x)
+                        {
+                            // Go through all the existing children and compute the major color
+                            // reset counters and trackers
+                            counts.fill(0);
+                            best = 0; bestColor = 0;
+                            for(int i = 0; i < 8; ++i)
+                            {
+                                int32_t cidx = parent.children[i];
+                                if(cidx >= 0)
+                                {
+                                    const Node& c = nodes[cidx];
+                                    if(c.brickIndex != -1)
+                                    {
+                                        // fetch the color from corresponding mip
+                                        uint8_t colorIdx = fineBrickMips[c.brickIndex].voxels[x + COARSE_BRICK_SIZE * (y + COARSE_BRICK_SIZE * z)];
+                                        if(colorIdx)
+                                        {
+                                            counts[colorIdx]++;
+                                            if(counts[colorIdx] > best)
+                                            {
+                                                best = counts[colorIdx];
+                                                bestColor = colorIdx;
+                                            }
+                                        }
+                                    }
+                                    else
+                                    {
+                                        // mono-color child
+                                        uint8_t colorIdx = c.color;
+                                        // mono color child cannot be 0 as it means non-existent so no need to check here
+                                        counts[colorIdx]++;
+                                        if(counts[colorIdx] > best)
+                                        {
+                                            best = counts[colorIdx];
+                                            bestColor = colorIdx;
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Assign the coarse brick's voxel color
+                            cb.voxels[x + COARSE_BRICK_SIZE * (y + COARSE_BRICK_SIZE * z)] = bestColor;
+                        }
+
+                coarseBricks.push_back(cb);
+                parent.brickIndex = static_cast<int32_t>(coarseBricks.size() - 1);
+                // Go through the coarse bricks (simple loop of 8) to assign node color
+                // TODO: If all the bricks are of same colors the coarse brick could be collapsed and represented by the best color. After testing coarse brick logic adding this is trivial.
+                counts.fill(0); best = 0; bestColor = 0;
+                for(auto c : cb.voxels)
+                {
+                    if(c)
+                    {
+                        counts[c]++;
+                        if(counts[c] > best)
+                        {
+                            best = counts[c];
+                            bestColor = c;
+                        }
+                    }
+                }
+
+                parent.color = bestColor;
+            }
+            else
+            {
+                // From this level on bricks are collapsed so using nodes' representative colors
+                for(int i = 0; i < 8; ++i)
+                {
+                    int32_t cidx = parent.children[i];
+                    if(cidx >= 0)
+                    {
+                        uint8_t colorIdx = nodes[cidx].color;
+                        counts[colorIdx]++;
+                        if(counts[colorIdx] > best)
+                        {
+                            best = counts[colorIdx];
+                            bestColor = colorIdx;
+                        }
+                    }
+                }
+
+                // Assign node color
+                parent.color = bestColor;
+            }
         }
     }
 
@@ -251,6 +367,47 @@ void SVO::computeWorldAABB(const Node& node, glm::vec3& outMin, glm::vec3& outMa
     outMax = glm::min(outMax, worldUpper);
 }
 
+CoarseBrick SVO::computeFineBrickMip(const FineBrick& b)
+{
+    // Fine bricks and their mips always have the same indices in their own arrays
+    CoarseBrick mip;
+    mip.voxels.fill(0);
+    std::array<int, 256> counts;
+    /*
+        Mip is created by 2x2x2 downsampling which takes major color among the kernel. (Max pooling)
+    */
+    for(uint32_t z = 0; z < COARSE_BRICK_SIZE; ++z)
+        for(uint32_t y = 0; y < COARSE_BRICK_SIZE; ++y)
+            for(uint32_t x = 0; x < COARSE_BRICK_SIZE; ++x)
+            {
+                // majority among the 2x2x2 block in b.voxels
+                counts.fill(0);
+                int best = 0; uint8_t bestC = 0;
+                for(uint32_t dz = 0; dz < 2; ++dz)
+                    for(uint32_t dy = 0; dy < 2; ++dy)
+                        for(uint32_t dx = 0; dx < 2; ++dx)
+                        {
+                            uint32_t sx = x * 2 + dx;
+                            uint32_t sy = y * 2 + dy;
+                            uint32_t sz = z * 2 + dz;
+                            uint8_t v = b.voxels[sx + FINE_BRICK_SIZE * (sy + FINE_BRICK_SIZE * sz)];
+                            if(v)
+                            {
+                                counts[v]++;
+                                if(counts[v] > best)
+                                {
+                                    best = counts[v];
+                                    bestC = v;
+                                }
+                            }
+                        }
+                // Assign the major color
+                mip.voxels[x + COARSE_BRICK_SIZE * (y + COARSE_BRICK_SIZE * z)] = bestC;
+            }
+
+    return mip;
+}
+
 std::vector<uint32_t> SVO::selectNodes(const glm::vec3& cameraPos, float lodBaseDist) const
 {
     std::vector<uint32_t> result;
@@ -258,12 +415,12 @@ std::vector<uint32_t> SVO::selectNodes(const glm::vec3& cameraPos, float lodBase
 
     // iterative stack traversal starting at roots
     std::vector<int32_t> stack;
-    for(size_t i = 0; i < nodes.size(); ++i) 
+    for(size_t i = 0; i < nodes.size(); ++i)
     {
         if(nodes[i].parentIndex == -1) stack.push_back((int32_t)i);
     }
 
-    while(!stack.empty()) 
+    while(!stack.empty())
     {
         int32_t nodeIdx = stack.back();
         stack.pop_back();
@@ -288,17 +445,17 @@ std::vector<uint32_t> SVO::selectNodes(const glm::vec3& cameraPos, float lodBase
 
         // Select leaf nodes unconditionally (they contain renderable data), or select
         // non-leaf nodes when they are sufficiently far (coarser LOD).
-        if(isLeaf || dist > lodBaseDist * nodeExtent) 
+        if(isLeaf || dist > lodBaseDist * nodeExtent)
         {
-            if(n.flatIndex >= 0) 
+            if(n.flatIndex >= 0)
             {
                 result.push_back(static_cast<uint32_t>(n.flatIndex));
             }
         }
-        else 
+        else
         {
             // descend children (only existing ones)
-            for(int i = 0; i < 8; ++i) 
+            for(int i = 0; i < 8; ++i)
             {
                 int32_t c = n.children[i];
                 if(c >= 0) stack.push_back(c);
@@ -319,12 +476,12 @@ std::vector<uint32_t> SVO::selectNodesScreenSpace(const glm::vec3& cameraPos, fl
     std::vector<int32_t> stack;
 
     // Push root nodes
-    for(size_t i = 0; i < nodes.size(); ++i) 
+    for(size_t i = 0; i < nodes.size(); ++i)
     {
         if(nodes[i].parentIndex == -1) stack.push_back((int32_t)i);
     }
 
-    while(!stack.empty()) 
+    while(!stack.empty())
     {
         int32_t nodeIdx = stack.back();
         stack.pop_back();
@@ -349,22 +506,22 @@ std::vector<uint32_t> SVO::selectNodesScreenSpace(const glm::vec3& cameraPos, fl
         // If it is, we need more detail (descend further).
         bool needsRefinement = (screenSize > pixelThreshold);
 
-        bool isLeaf = (n.childrenMask == 0) || (n.brickIndex >= 0);
+        bool isLeaf = (n.level == leafLevel);
 
         // Select this node if:
         // 1. It's a leaf (we can't subdivide further), OR
         // 2. Its projected size is small enough that we don't need to refine it.
-        if(isLeaf || !needsRefinement) 
+        if(isLeaf || !needsRefinement)
         {
-            if(n.flatIndex >= 0) 
+            if(n.flatIndex >= 0)
             {
                 result.push_back(static_cast<uint32_t>(n.flatIndex));
             }
         }
-        else 
+        else
         {
             // The node is too big on screen and is not a leaf -> descend.
-            for(int i = 0; i < 8; ++i) 
+            for(int i = 0; i < 8; ++i)
             {
                 int32_t c = n.children[i];
                 if(c >= 0) stack.push_back(c);
@@ -380,7 +537,7 @@ size_t SVO::estimateMemoryUsageBytes() const
     size_t memory = 0;
     memory += nodes.size() * sizeof(Node);
     memory += flatNodesGPU.size() * sizeof(SVONodeGPU);
-    memory += bricks.size() * sizeof(Brick);
+    memory += fineBricks.size() * sizeof(FineBrick);
     return memory;
 }
 

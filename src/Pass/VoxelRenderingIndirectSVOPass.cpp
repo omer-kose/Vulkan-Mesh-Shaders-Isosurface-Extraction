@@ -141,10 +141,11 @@ void VoxelRenderingIndirectSVOPass::SetDepthPyramidBinding(VulkanEngine* engine,
     writer.updateSet(engine->device, ComputeDescriptorSet);
 }
 
-void VoxelRenderingIndirectSVOPass::SetBufferAddresses(const VkDeviceAddress& svoNodeGPUBufferAddress, const VkDeviceAddress& brickBufferAddress, const VkDeviceAddress& nodeDrawDataBufferAddress, const VkDeviceAddress& drawNodeCountBufferAddress, const VkDeviceAddress& activeNodeIndicesBufferAddress)
+void VoxelRenderingIndirectSVOPass::SetBufferAddresses(const VkDeviceAddress& svoNodeGPUBufferAddress, const VkDeviceAddress& fineBrickBufferAddress, const VkDeviceAddress& coarseBrickBufferAddress, const VkDeviceAddress& nodeDrawDataBufferAddress, const VkDeviceAddress& drawNodeCountBufferAddress, const VkDeviceAddress& activeNodeIndicesBufferAddress)
 {
     PushConstants.svoNodeGPUBufferAddress = svoNodeGPUBufferAddress;
-    PushConstants.brickBufferAddress = brickBufferAddress;
+    PushConstants.fineBrickBufferAddress = fineBrickBufferAddress;
+    PushConstants.coarseBrickBufferAddress = coarseBrickBufferAddress;
     PushConstants.nodeDrawDataBufferAddress = nodeDrawDataBufferAddress;
     PushConstants.drawNodeCountBufferAddress = drawNodeCountBufferAddress;
     PushConstants.activeNodeIndicesBufferAddress = activeNodeIndicesBufferAddress;

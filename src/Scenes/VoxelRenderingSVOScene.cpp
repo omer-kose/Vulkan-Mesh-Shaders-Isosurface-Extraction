@@ -32,7 +32,7 @@ void VoxelRenderingSVOScene::load(VulkanEngine* engine)
 
     // Set the camera
     mainCamera = Camera(glm::vec3(0.0f, 0.0f, 2.0f), 0.0f, 0.0f);
-    mainCamera.setSpeed(2.0f);
+    mainCamera.setSpeed(20.0f);
 
     VkExtent2D windowExtent = pEngine->getWindowExtent();
     fov = glm::radians(45.0f);
@@ -299,13 +299,18 @@ void VoxelRenderingSVOScene::loadData(uint32_t modelID)
     svoNodeGPUBuffer = pEngine->createAndUploadGPUBuffer(svoNodeGPUBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, gpuNodes.data());
 
     // Allocate and upload Bricks to the gpu onces
-    const std::vector<Brick> bricks = pSvo->getBricks();
-    size_t brickBufferSize = bricks.size() * sizeof(Brick);
-    brickBuffer = pEngine->createAndUploadGPUBuffer(brickBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, bricks.data());
+    const std::vector<FineBrick>& fineBricks = pSvo->getFineBricks();
+    size_t fineBrickBufferSize = fineBricks.size() * sizeof(FineBrick);
+    fineBrickBuffer = pEngine->createAndUploadGPUBuffer(fineBrickBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, fineBricks.data());
 
-    // TODO: Once data is upload no need to store flat gpu nodes in the memory (also the bricks? they are not needed for LOD selection I think)
+    const std::vector<CoarseBrick>& coarseBricks = pSvo->getCoarseBricks();
+    size_t coarseBrickBufferSize = coarseBricks.size() * sizeof(CoarseBrick);
+    coarseBrickBuffer = pEngine->createAndUploadGPUBuffer(coarseBrickBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, coarseBricks.data());
+
+    // TODO: Once data is upload no need to store flat gpu nodes in the memory
+    // TODO UPDATE: I actually reuse flatGPUNodes to avoid recomputation of AABB's. I might store another array for lookups and delete GPU Nodes as they are larger in memory per unit
     // pSvo->clearFlatGPUNodes();
-    // pSvo->clearBricks();
+    pSvo->clearBricks();
 
     // Allocate Indirect Buffers
     size_t maxNumTaskInvocations = gpuNodes.size();
@@ -317,7 +322,7 @@ void VoxelRenderingSVOScene::loadData(uint32_t modelID)
     activeNodeIndicesBuffer = pEngine->createBuffer(gpuNodes.size() * sizeof(uint32_t), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 
     // Set Voxel Rendering Params
-    VoxelRenderingIndirectSVOPass::SetBufferAddresses(pEngine->getBufferDeviceAddress(svoNodeGPUBuffer.buffer), pEngine->getBufferDeviceAddress(brickBuffer.buffer), pEngine->getBufferDeviceAddress(nodeDrawDataBuffer.buffer),
+    VoxelRenderingIndirectSVOPass::SetBufferAddresses(pEngine->getBufferDeviceAddress(svoNodeGPUBuffer.buffer), pEngine->getBufferDeviceAddress(fineBrickBuffer.buffer), pEngine->getBufferDeviceAddress(coarseBrickBuffer.buffer), pEngine->getBufferDeviceAddress(nodeDrawDataBuffer.buffer),
         pEngine->getBufferDeviceAddress(drawNodeCountBuffer.buffer), pEngine->getBufferDeviceAddress(activeNodeIndicesBuffer.buffer));
     
     VoxelRenderingIndirectSVOPass::SetLeafLevel(pSvo->getLeafLevel());
@@ -329,7 +334,8 @@ void VoxelRenderingSVOScene::loadData(uint32_t modelID)
 void VoxelRenderingSVOScene::clearBuffers()
 {
     pEngine->destroyBuffer(svoNodeGPUBuffer);
-    pEngine->destroyBuffer(brickBuffer);
+    pEngine->destroyBuffer(fineBrickBuffer);
+    pEngine->destroyBuffer(coarseBrickBuffer);
     pEngine->destroyBuffer(nodeDrawDataBuffer);
     pEngine->destroyBuffer(drawNodeCountBuffer);
     pEngine->destroyBuffer(activeNodeIndicesStagingBuffer);

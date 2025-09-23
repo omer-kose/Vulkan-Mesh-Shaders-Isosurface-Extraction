@@ -25,7 +25,8 @@ public:
 		uint32_t depthPyramidWidth;
 		uint32_t depthPyramidHeight;
 		VkDeviceAddress svoNodeGPUBufferAddress;
-		VkDeviceAddress brickBufferAddress;
+		VkDeviceAddress fineBrickBufferAddress;
+		VkDeviceAddress coarseBrickBufferAddress;
 		VkDeviceAddress nodeDrawDataBufferAddress;
 		VkDeviceAddress drawNodeCountBufferAddress;
 		VkDeviceAddress activeNodeIndicesBufferAddress;
@@ -37,7 +38,7 @@ public:
 	static void ExecuteGraphicsPass(VulkanEngine* engine, VkCommandBuffer cmd, VkBuffer indirectCommandBuffer);
 	// Push Constant Set Functions
 	static void SetDepthPyramidBinding(VulkanEngine* engine, VkImageView depthPyramidView, VkSampler depthPyramidSampler);
-	static void SetBufferAddresses(const VkDeviceAddress& svoNodeGPUBufferAddress, const VkDeviceAddress& brickBufferAddress, const VkDeviceAddress& nodeDrawDataBufferAddress, const VkDeviceAddress& drawNodeCountBufferAddress, const VkDeviceAddress& activeNodeIndicesBufferAddress);
+	static void SetBufferAddresses(const VkDeviceAddress& svoNodeGPUBufferAddress, const VkDeviceAddress& fineBrickBufferAddress, const VkDeviceAddress& coarseBrickBufferAddress, const VkDeviceAddress& nodeDrawDataBufferAddress, const VkDeviceAddress& drawNodeCountBufferAddress, const VkDeviceAddress& activeNodeIndicesBufferAddress);
 	static void SetNumActiveNodes(uint32_t numNodes);
 	static void SetLeafLevel(uint32_t leafLevel);
 	static void SetCameraZNear(float zNear);

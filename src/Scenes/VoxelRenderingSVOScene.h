@@ -34,7 +34,8 @@ private:
 	glm::vec3 gridUpperCornerPos; // in world space
 	std::unique_ptr<SVO> pSvo;
 	AllocatedBuffer svoNodeGPUBuffer; // flattened SVO GPU Nodes
-	AllocatedBuffer brickBuffer; 
+	AllocatedBuffer fineBrickBuffer;
+	AllocatedBuffer coarseBrickBuffer;
 	// Indirect 
 	AllocatedBuffer nodeDrawDataBuffer;
 	AllocatedBuffer drawNodeCountBuffer;

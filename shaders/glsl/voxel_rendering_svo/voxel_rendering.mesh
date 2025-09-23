@@ -35,11 +35,11 @@ const ivec3 neighborOffset[6] = ivec3[6](
 
     This is only used while processing leaf nodes (bricks). Coarser nodes doesn't check this. 
 */
-bool neighborOccupied(uint nodeID, uvec3 voxelID, uint faceId) 
+bool neighborOccupied(uint nodeID, uvec3 voxelID, uint faceId, uint brickSize) 
 {
 	// Index of the neighbor
     ivec3 neighborID = ivec3(voxelID) + neighborOffset[faceId];
-    if(any(lessThan(neighborID, ivec3(0))) || any(greaterThan(neighborID, ivec3(BRICK_SIZE - 1)))) return false;
+    if(any(lessThan(neighborID, ivec3(0))) || any(greaterThan(neighborID, ivec3(brickSize - 1)))) return false;
 	return voxelValue(nodeID, neighborID) != 0;
 }
 
@@ -96,12 +96,11 @@ void main()
 	const uint meshletID = taskPayload.meshlets[gl_WorkGroupID.x].meshletID;
 	const uint nodeID = taskPayload.nodeID;
     SVONodeGPU node = svoNodeGPUBuffer.nodes[nodeID];
-    bool isLeaf = node.level == leafLevel;
-    bool isMonoColor = node.brickIndex == 0xFFFFFFFFu;
+	bool hasBrick = node.brickIndex != 0xFFFFFFFFu; // if there is no leaf brickIndex is -1 == UINT_MAX
     uint colorIndex;
-    if(isLeaf)
+    if(hasBrick)
     {
-        // If leaf node, fetch the color from brick
+        // fetch the color from brick
         colorIndex = taskPayload.meshlets[gl_WorkGroupID.x].colorIndex;
     }
     else
@@ -111,15 +110,15 @@ void main()
     }
 
 	// Reconstruct voxel (x, y, z) from MeshletID to find the index in the brick
-    uint voxelID_X = meshletID % BRICK_SIZE;
-    uint voxelID_Y = (meshletID / BRICK_SIZE) % BRICK_SIZE;
-    uint voxelID_Z = meshletID / (BRICK_SIZE * BRICK_SIZE);
+    uint brickSize = (node.level == leafLevel) ? FINE_BRICK_SIZE : COARSE_BRICK_SIZE;
+    uint voxelID_X = meshletID % brickSize;
+    uint voxelID_Y = (meshletID / brickSize) % brickSize;
+    uint voxelID_Z = meshletID / (brickSize * brickSize);
 
-    // TODO: Lower and Upper Corners here might be corresponding to the corners not center. In that case an offset of 0.5 * voxelStep will be needed. Make it sure it is correct
     vec3 voxelSize, voxelCenter;
-    if(isLeaf)
+    if(hasBrick)
     {
-        voxelSize = (node.upperCorner - node.lowerCorner) / vec3(BRICK_SIZE); // In World Space: size vector of a voxel in the brick
+        voxelSize = (node.upperCorner - node.lowerCorner) / vec3(brickSize); // In World Space: size vector of a voxel in the brick
         voxelCenter = node.lowerCorner + vec3(voxelID_X, voxelID_Y, voxelID_Z) * voxelSize;
     }
     else
@@ -156,7 +155,7 @@ void main()
 				break;
 		}
 
-        bool blocked = (isLeaf && !isMonoColor) ? neighborOccupied(nodeID, uvec3(voxelID_X, voxelID_Y, voxelID_Z), threadID) : false;
+        bool blocked = hasBrick ? neighborOccupied(nodeID, uvec3(voxelID_X, voxelID_Y, voxelID_Z), threadID, brickSize) : false;
         keep = cameraSide && !blocked;
 	}
 

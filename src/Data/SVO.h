@@ -9,10 +9,20 @@
 #include <functional>
 #include <array>
 
-// Tune this according to memory vs quality tradeoff.
-// Must be power of two. 8 is a good pick
-constexpr int BRICK_SIZE = 4;
-constexpr int BRICK_VOLUME = BRICK_SIZE * BRICK_SIZE * BRICK_SIZE;
+/*
+    Normally, in an SVO, I would let user to choose the brick size. However, this SVO's bricks are processed by the task shader. Therefore, it's size cannot be arbitrary due to limits.
+
+    4 is the best choice as it creates a volume of 64 voxels to process. Task Shaders work in groups of 32 threads preferred by the spec and with size 64 this means 2 iterations per thread which is 
+    good amount of work per GPU thread. Also, it keeps TaskPayload in reasonable sizes. 
+
+    Tried 2 and 8 too, they perform much worse. 
+    2: Too many leaves and thus too many task shader dispatches which is an overhead as an overhead for the driver and causes performance drop
+    8: Too many work per GPU thread (16 iterations)
+*/
+constexpr int FINE_BRICK_SIZE = 4;
+constexpr int FINE_BRICK_VOLUME = FINE_BRICK_SIZE * FINE_BRICK_SIZE * FINE_BRICK_SIZE;
+constexpr int COARSE_BRICK_SIZE = 2;
+constexpr int COARSE_BRICK_VOLUME = COARSE_BRICK_SIZE * COARSE_BRICK_SIZE * COARSE_BRICK_SIZE;
 
 struct SVONodeGPU
 {
@@ -23,10 +33,24 @@ struct SVONodeGPU
     uint32_t  brickIndex; // UINT32_MAX => no brick present (mono-color leaf or internal)
 };
 
-// simple fixed-size brick type (stores BRICK_SIZE^3 bytes)
-struct Brick
+/*
+    Simple fixed-size brick types (stores BRICK_SIZE ^ 3 bytes)
+    There are two possible options:
+    LOD0 -> 4x4x4 fine bricks 
+    LOD1 -> 2x2x2 coarse bricks
+    LOD2 and on -> collapsed into nodes
+
+    As, these bricks will be used in shaders, they have to be fixed size structs. Therefore, creating two variations of it. Technically, you would need log2(FINE_BRICK_SIZE) different types but as 
+    FINE_BRICK_SIZE is always 4, I can just get away by having 2 structs. Not the proudest solution I have found.
+*/
+struct FineBrick
 {
-    std::array<uint8_t, BRICK_VOLUME> voxels;
+    std::array<uint8_t, FINE_BRICK_VOLUME> voxels;
+};
+
+struct CoarseBrick
+{
+    std::array<uint8_t, COARSE_BRICK_VOLUME> voxels;
 };
 
 struct UVec3Comparator
@@ -47,8 +71,10 @@ public:
         const glm::vec3& worldLower,
         const glm::vec3& worldUpper);
 
-    const std::vector<SVONodeGPU>& getFlatGPUNodes() const { return flatNodesGPU; }
-    const std::vector<Brick>& getBricks() const { return bricks; }
+    const std::vector<SVONodeGPU>& getFlatGPUNodes();
+    const std::vector<FineBrick>& getFineBricks();
+    const std::vector<CoarseBrick>& getCoarseBricks();
+    void clearBricks();
     std::vector<uint32_t> selectNodes(const glm::vec3& cameraPos, float lodBaseDist) const;
     std::vector<uint32_t> selectNodesScreenSpace(const glm::vec3& cameraPos, float fovY, float aspect, uint32_t screenHeight, float pixelThreshold) const;
     size_t estimateMemoryUsageBytes() const;
@@ -83,15 +109,18 @@ private:
     glm::vec3  worldUpper;
     glm::vec3  voxelSize; // computed using paddedGridSize
     int levels;           // number of levels (level indices 0..levels-1)
-    int leafLevel;        // level at which bricks live (log2(BRICK_SIZE))
+    int leafLevel;        // level at which bricks live (log2(FINE_BRICK_SIZE))
 
     std::vector<Node> nodes;                 // sparse nodes (only non-empty / bricks)
     std::vector<SVONodeGPU> flatNodesGPU;    // flattened snapshot for GPU
-    std::vector<Brick> bricks;               // dense brick data when necessary
+    std::vector<FineBrick> fineBricks;               // dense brick data when necessary
+    std::vector<CoarseBrick> fineBrickMips; // first mip level of fine bricks temporarily used for creating coarse bricks
+    std::vector<CoarseBrick> coarseBricks;
 
     inline uint8_t voxelValue(const glm::uvec3& idx) const;
     static inline uint32_t gridLinear(const glm::uvec3& i, const glm::uvec3& s);
     void buildTree();
     void flattenTree();
     void computeWorldAABB(const Node& node, glm::vec3& outMin, glm::vec3& outMax) const;
+    CoarseBrick computeFineBrickMip(const FineBrick& b);
 };

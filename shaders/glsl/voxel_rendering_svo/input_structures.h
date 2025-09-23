@@ -15,10 +15,12 @@ layout(set = 1, binding = 0, scalar) uniform Palette
 	VoxelColor palette[256];
 };
 
-#define BRICK_SIZE 4  // brick size of the leaf 
+#define FINE_BRICK_SIZE 4  // brick size of the leaf 
+#define COARSE_BRICK_SIZE 2
 
 // Derived Constants
-#define BRICK_VOLUME (BRICK_SIZE * BRICK_SIZE * BRICK_SIZE)
+#define FINE_BRICK_VOLUME (FINE_BRICK_SIZE * FINE_BRICK_SIZE * FINE_BRICK_SIZE)
+#define COARSE_BRICK_VOLUME (COARSE_BRICK_SIZE * COARSE_BRICK_SIZE * COARSE_BRICK_SIZE)
 
 /*
 	GPU version of SVO nodes. For GPU-side, each node is nothing but a voxel with varying information required. Those voxels are not uniform and can be from different levels of the hierarchy
@@ -32,10 +34,14 @@ struct SVONodeGPU
 	uint  brickIndex; // UINT32_MAX => no brick present (mono-color leaf or internal)
 };
 
-// simple fixed-size brick type (stores BRICK_SIZE^3 bytes)
-struct Brick
+struct FineBrick
 {
-	uint8_t voxels[BRICK_VOLUME];
+	uint8_t voxels[FINE_BRICK_VOLUME];
+};
+
+struct CoarseBrick
+{
+	uint8_t voxels[COARSE_BRICK_VOLUME];
 };
 
 /*
@@ -53,11 +59,15 @@ layout(buffer_reference, scalar) readonly buffer SVONodeGPUBuffer
 	SVONodeGPU nodes[]; // Contains all the GPU nodes of the SVO tree
 };
 
-layout(buffer_reference, scalar) readonly buffer BrickBuffer
+layout(buffer_reference, scalar) readonly buffer FineBrickBuffer
 {
-	Brick bricks[]; // Contains color data. If 0 that means Voxel is not solid (not occupied).
+	FineBrick bricks[]; // Contains color data. If 0 that means Voxel is not solid (not occupied).
 };
 
+layout(buffer_reference, scalar) readonly buffer CoarseBrickBuffer
+{
+	CoarseBrick bricks[]; // Contains color data. If 0 that means Voxel is not solid (not occupied).
+};
 
 layout(buffer_reference, scalar) buffer NodeDrawDataBuffer
 {
@@ -89,7 +99,8 @@ layout(push_constant, scalar) uniform PushConstants
 	uint depthPyramidWidth;
 	uint depthPyramidHeight;
 	SVONodeGPUBuffer svoNodeGPUBuffer;
-	BrickBuffer brickBuffer;
+	FineBrickBuffer fineBrickBuffer;
+	CoarseBrickBuffer coarseBrickBuffer;
 	NodeDrawDataBuffer nodeDrawDataBuffer;
 	DrawNodeCountBuffer drawNodeCountBuffer;
 	ActiveNodeIndicesBuffer activeNodeIndicesBuffer;
@@ -104,19 +115,30 @@ struct MeshletData
 
 struct TaskPayload
 {
-	// These two are only filled if task shader processes a leaf node
-	MeshletData meshlets[BRICK_VOLUME]; 
+	// These two are only filled if task shader processes a node with brick
+	MeshletData meshlets[FINE_BRICK_VOLUME];
+	// TODO: Not needed this can be already fetched via nodeID
 	uint nodeColorIndex; // If non-leaf node has a single representative color. Only filled if task shader is processing a non-leaf node
 	uint nodeID;
 };
 
 /*
 	Fetches the voxel value that stores color value per voxel from the brick that leaf node represents.
+
+	This function is only called if the node has a valid brick
 */
 uint voxelValue(uint nodeID, uvec3 idx)
 {
 	uint brickIdx = svoNodeGPUBuffer.nodes[nodeID].brickIndex;
-	return uint(brickBuffer.bricks[brickIdx].voxels[idx.x + BRICK_SIZE * (idx.y + BRICK_SIZE * idx.z)]);
+	uint level = uint(svoNodeGPUBuffer.nodes[nodeID].level);
+	if(level == leafLevel)
+	{
+		return uint(fineBrickBuffer.bricks[brickIdx].voxels[idx.x + FINE_BRICK_SIZE * (idx.y + FINE_BRICK_SIZE * idx.z)]);
+	}
+	else
+	{
+		return uint(coarseBrickBuffer.bricks[brickIdx].voxels[idx.x + COARSE_BRICK_SIZE * (idx.y + COARSE_BRICK_SIZE * idx.z)]);
+	}
 }
 
 bool projectBox(vec3 bmin, vec3 bmax, float znear, mat4 viewProjection, out vec4 aabb, out float nearestDepth)

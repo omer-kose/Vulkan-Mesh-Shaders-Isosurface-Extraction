@@ -268,7 +268,7 @@ void SVOUnitTests::benchmarkLODSimulation()
 
     size_t mem = svo.estimateMemoryUsageBytes();
     const auto& nodes = svo.getFlatGPUNodes();
-    const auto& bricks = svo.getBricks();
+    const auto& bricks = svo.getFineBricks();
 
     fmt::print("Build time: {:.3f} ms, SVO mem: {} bytes, Nodes: {}, Bricks: {}\n",
         buildMs, mem, nodes.size(), bricks.size());
@@ -388,7 +388,7 @@ void SVOUnitTests::benchmarkLargeScaleEfficiency()
             size_t mem = svo.estimateMemoryUsageBytes();
             size_t denseBytesLocal = grid.size() * sizeof(uint8_t);
             size_t nodes = svo.getFlatGPUNodes().size();
-            size_t bricks = svo.getBricks().size();
+            size_t bricks = svo.getFineBricks().size();
 
             fmt::print("  Build: {:.3f} ms, SVO mem: {} bytes, Dense mem: {} bytes, Ratio={:.2f}x, Nodes={}, Bricks={}\n",
                 buildMs, mem, denseBytesLocal, double(mem) / double(denseBytesLocal), nodes, bricks);
@@ -450,7 +450,7 @@ void SVOUnitTests::benchmarkFineLODSelection()
     auto t1 = std::chrono::high_resolution_clock::now();
     double buildMs = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
     fmt::print("Build time: {:.3f} ms, nodes={}, bricks={}\n",
-        buildMs, svo.getFlatGPUNodes().size(), svo.getBricks().size());
+        buildMs, svo.getFlatGPUNodes().size(), svo.getFineBricks().size());
 
     // Define very close-up camera positions near the terrain surface
     std::vector<glm::vec3> cameras;
@@ -470,7 +470,7 @@ void SVOUnitTests::benchmarkFineLODSelection()
         cameras.size(), lodBase);
 
     const auto& nodes = svo.getFlatGPUNodes();
-    const int brickSize = BRICK_SIZE;
+    const int brickSize = FINE_BRICK_SIZE;
 
     // Accumulators
     uint64_t totalSelected = 0;
@@ -558,7 +558,7 @@ void SVOUnitTests::testLargeWorldScreenSpaceLOD()
     SVO svo(grid, gridSize, worldLower, worldUpper);
     auto memUsage = svo.estimateMemoryUsageBytes();
     fmt::print("SVO built: nodes={}, bricks={}, mem={} bytes\n",
-        svo.nodes.size(), svo.bricks.size(), memUsage);
+        svo.nodes.size(), svo.fineBricks.size(), memUsage);
 
     // ===== LOD Selection Benchmark =====
     std::vector<glm::vec3> cameras = {
