@@ -140,22 +140,25 @@ void VoxelRenderingSVOScene::performPreRenderPassOps(VkCommandBuffer cmd)
         size_t numActiveNodes = pLodSelector->getSelectionSnapshot(activeNodes);
 
         VoxelRenderingIndirectSVOPass::SetNumActiveNodes(numActiveNodes);
-        uint32_t* pStagingBuffer = (uint32_t*)pEngine->getMappedStagingBufferData(activeNodeIndicesStagingBuffer);
-        std::memcpy(pStagingBuffer, activeNodes.data(), numActiveNodes * sizeof(uint32_t));
+        if(numActiveNodes > 0)
+        {
+            uint32_t* pStagingBuffer = (uint32_t*)pEngine->getMappedStagingBufferData(activeNodeIndicesStagingBuffer);
+            std::memcpy(pStagingBuffer, activeNodes.data(), numActiveNodes * sizeof(uint32_t));
 
-        // issue buffer copy
-        VkBufferCopy copy{};
-        copy.dstOffset = 0;
-        copy.srcOffset = 0;
-        copy.size = numActiveNodes * sizeof(uint32_t);
+            // issue buffer copy
+            VkBufferCopy copy{};
+            copy.dstOffset = 0;
+            copy.srcOffset = 0;
+            copy.size = numActiveNodes * sizeof(uint32_t);
 
-        vkCmdCopyBuffer(cmd, activeNodeIndicesStagingBuffer.buffer, activeNodeIndicesBuffer.buffer, 1, &copy);
-        // Synchronize with a barrier
-        VkBufferMemoryBarrier2 copyActiveChunksBarrier = vkutil::bufferBarrier(activeNodeIndicesBuffer.buffer,
-            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
-            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
+            vkCmdCopyBuffer(cmd, activeNodeIndicesStagingBuffer.buffer, activeNodeIndicesBuffer.buffer, 1, &copy);
+            // Synchronize with a barrier
+            VkBufferMemoryBarrier2 copyActiveChunksBarrier = vkutil::bufferBarrier(activeNodeIndicesBuffer.buffer,
+                VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
+                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
 
-        vkutil::pipelineBarrier(cmd, 0, 1, &copyActiveChunksBarrier, 0, nullptr);
+            vkutil::pipelineBarrier(cmd, 0, 1, &copyActiveChunksBarrier, 0, nullptr);
+        }
 
         if(cameraDirty)
         {
