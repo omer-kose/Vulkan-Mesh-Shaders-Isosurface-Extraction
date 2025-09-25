@@ -8,6 +8,8 @@
 #include <Data/SVO.h>
 #include <Data/ogt_vox.h>
 
+#include <Util/LodSelectorAsync.h>
+
 class VoxelRenderingSVOScene : public Scene
 {
 public:
@@ -48,4 +50,7 @@ private:
 	float aspectRatio;
 	float LODPixelThreshold;
 	float prevLODPixelThreshold; // to trigger LOD selection
+
+	std::unique_ptr<LODSelectorAsync> pLodSelector;
+	LODSelectorAsync::Params lodParams;
 };

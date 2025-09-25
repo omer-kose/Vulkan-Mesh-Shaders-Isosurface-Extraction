@@ -123,9 +123,22 @@ void VoxelRenderingSVOScene::performPreRenderPassOps(VkCommandBuffer cmd)
     bool cameraDirty = mainCamera.isDirty();
     if(pixelThresholdChanged || cameraDirty)
     {
-        // Fetch nodes to be processed this frame wrt camera (LOD)
-        const std::vector<uint32_t> activeNodes = pSvo->selectNodesScreenSpace(mainCamera.position, fov, aspectRatio, pEngine->getWindowExtent().height, LODPixelThreshold);
-        size_t numActiveNodes = activeNodes.size();
+        lodParams.cameraPos = mainCamera.position;
+        lodParams.fovY = fov;
+        lodParams.aspect = aspectRatio;
+        lodParams.screenHeight = pEngine->getWindowExtent().height;
+        lodParams.pixelThreshold = LODPixelThreshold;
+
+        // If we changed the pixel threshold, force a recompute right away.
+        bool force = pixelThresholdChanged;
+
+        // Ask the async selector to compute (non-blocking)
+        pLodSelector->requestUpdate(lodParams, force);
+
+        // Copy the most recently completed selection (may be last published result)
+        std::vector<uint32_t> activeNodes;
+        size_t numActiveNodes = pLodSelector->getSelectionSnapshot(activeNodes);
+
         VoxelRenderingIndirectSVOPass::SetNumActiveNodes(numActiveNodes);
         uint32_t* pStagingBuffer = (uint32_t*)pEngine->getMappedStagingBufferData(activeNodeIndicesStagingBuffer);
         std::memcpy(pStagingBuffer, activeNodes.data(), numActiveNodes * sizeof(uint32_t));
@@ -293,6 +306,23 @@ void VoxelRenderingSVOScene::loadData(uint32_t modelID)
     pSvo = std::make_unique<SVO>(gridData, gridSize, gridLowerCornerPos, gridUpperCornerPos);
     gridData.clear();
 
+    if(pLodSelector)
+    {
+        // First stop the working thread
+        pLodSelector->stop();
+        pLodSelector.reset();
+    }
+
+    pLodSelector = std::make_unique<LODSelectorAsync>(*(pSvo.get()));
+    // Initialize the params at the beginning to correctly fetch LOD in the first frame
+    lodParams.cameraPos = mainCamera.position;
+    lodParams.fovY = fov;
+    lodParams.aspect = aspectRatio;
+    lodParams.screenHeight = pEngine->getWindowExtent().height;
+    lodParams.pixelThreshold = LODPixelThreshold;
+    pLodSelector->setLODParams(lodParams);
+    pLodSelector->start();
+
     // Allocate the flat SVO GPU Node buffer and upload it once
     const std::vector<SVONodeGPU> gpuNodes = pSvo->getFlatGPUNodes();
     size_t svoNodeGPUBufferSize = gpuNodes.size() * sizeof(SVONodeGPU);
@@ -341,4 +371,11 @@ void VoxelRenderingSVOScene::clearBuffers()
     pEngine->destroyBuffer(activeNodeIndicesStagingBuffer);
     pEngine->destroyBuffer(activeNodeIndicesBuffer);
     pEngine->destroyBuffer(colorPaletteBuffer);
+
+    if(pLodSelector)
+    {
+        // First stop the working thread
+        pLodSelector->stop();
+        pLodSelector.reset();
+    }
 }

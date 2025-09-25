@@ -64,17 +64,17 @@ SVO::SVO(const std::vector<uint8_t>& grid,
     fineBrickMips.clear();
 }
 
-const std::vector<SVONodeGPU>& SVO::getFlatGPUNodes()
+const std::vector<SVONodeGPU>& SVO::getFlatGPUNodes() const
 {
     return flatNodesGPU;
 }
 
-const std::vector<FineBrick>& SVO::getFineBricks()
+const std::vector<FineBrick>& SVO::getFineBricks() const
 {
     return fineBricks;
 }
 
-const std::vector<CoarseBrick>& SVO::getCoarseBricks()
+const std::vector<CoarseBrick>& SVO::getCoarseBricks() const
 {
     return coarseBricks;
 }

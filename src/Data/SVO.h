@@ -71,9 +71,9 @@ public:
         const glm::vec3& worldLower,
         const glm::vec3& worldUpper);
 
-    const std::vector<SVONodeGPU>& getFlatGPUNodes();
-    const std::vector<FineBrick>& getFineBricks();
-    const std::vector<CoarseBrick>& getCoarseBricks();
+    const std::vector<SVONodeGPU>& getFlatGPUNodes() const;
+    const std::vector<FineBrick>& getFineBricks() const;
+    const std::vector<CoarseBrick>& getCoarseBricks() const;
     void clearBricks();
     std::vector<uint32_t> selectNodes(const glm::vec3& cameraPos, float lodBaseDist) const;
     std::vector<uint32_t> selectNodesScreenSpace(const glm::vec3& cameraPos, float fovY, float aspect, uint32_t screenHeight, float pixelThreshold) const;
@@ -82,6 +82,7 @@ public:
 
     // For unit tests
     friend class SVOUnitTests;
+    friend class LODSelectorAsync;
 private:
     // Compact node representation with explicit children indices
     struct Node
