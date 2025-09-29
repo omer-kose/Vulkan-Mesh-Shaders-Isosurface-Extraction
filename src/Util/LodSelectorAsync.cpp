@@ -20,8 +20,7 @@ LODSelectorAsync::LODSelectorAsync(const SVO& svoRef,
     lastUpdateTimeMs(0),
     stopFlag(false),
     paramsVersion(0),
-    lastProcessedVersion(0),
-    lastAppliedVersion(0)
+    lastProcessedVersion(0)
 {
     buffers[0].reserve(1024);
     buffers[1].reserve(1024);
@@ -40,6 +39,8 @@ void LODSelectorAsync::start()
         workers.emplace_back([this, i](){
             std::vector<uint32_t> localSelection;
             localSelection.reserve(1024);
+            std::vector<int32_t> stack;
+            stack.reserve(1024);
 
             while(!stopFlag.load())
             {
@@ -56,16 +57,12 @@ void LODSelectorAsync::start()
                     localVersion = paramsVersion.load();
                 }
 
-                std::vector<int32_t> stack;
-                stack.reserve(1024);
+                stack.clear();
                 localSelection.clear();
-
-                for(size_t i = 0; i < svo.nodes.size(); i++)
-                {
-                    if(svo.nodes[i].parentIndex == -1)
-                        stack.push_back((int32_t)i);
-                }
-
+                
+                // Push the root node
+                stack.push_back(svo.getRootIndex());
+                
                 size_t processedNodes = 0;
                 float screenFactor = float(localParams.screenHeight) / (2.0f * std::tan(localParams.fovY * 0.5f));
 

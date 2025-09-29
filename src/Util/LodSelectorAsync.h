@@ -49,7 +49,6 @@ public:
     // Copy the latest completed selection into 'out'. Returns number of indices copied.
     size_t getSelectionSnapshot(std::vector<uint32_t>& out) const;
 
-    // Simple tuning accessors
     void setMaxNodesPerTick(size_t v);
     void setThrottleMillis(uint32_t ms);
     void setLODParams(const Params& p);
@@ -83,5 +82,4 @@ private:
     std::atomic<bool> stopFlag;
     std::atomic<uint64_t> paramsVersion;
     std::atomic<uint64_t> lastProcessedVersion;
-    uint64_t lastAppliedVersion;
 };

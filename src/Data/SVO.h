@@ -74,6 +74,7 @@ public:
     const std::vector<SVONodeGPU>& getFlatGPUNodes() const;
     const std::vector<FineBrick>& getFineBricks() const;
     const std::vector<CoarseBrick>& getCoarseBricks() const;
+    const int getRootIndex() const;
     void clearBricks();
     std::vector<uint32_t> selectNodes(const glm::vec3& cameraPos, float lodBaseDist) const;
     std::vector<uint32_t> selectNodesScreenSpace(const glm::vec3& cameraPos, float fovY, float aspect, uint32_t screenHeight, float pixelThreshold) const;
@@ -111,6 +112,7 @@ private:
     glm::vec3  voxelSize; // computed using paddedGridSize
     int levels;           // number of levels (level indices 0..levels-1)
     int leafLevel;        // level at which bricks live (log2(FINE_BRICK_SIZE))
+    int rootIndex;
 
     std::vector<Node> nodes;                 // sparse nodes (only non-empty / bricks)
     std::vector<SVONodeGPU> flatNodesGPU;    // flattened snapshot for GPU

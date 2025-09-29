@@ -79,6 +79,11 @@ const std::vector<CoarseBrick>& SVO::getCoarseBricks() const
     return coarseBricks;
 }
 
+const int SVO::getRootIndex() const
+{
+    return rootIndex;
+}
+
 void SVO::clearBricks()
 {
     fineBricks.clear();
@@ -326,9 +331,14 @@ void SVO::flattenTree()
     flatNodesGPU.reserve(nodes.size());
 
     // simple DFS from root candidates (parentIndex == -1)
-    std::vector<int32_t> roots;
-    roots.reserve(32);
-    for(size_t i = 0; i < nodes.size(); ++i) if(nodes[i].parentIndex == -1) roots.push_back((int32_t)i);
+    // Find the root
+    for(size_t i = 0; i < nodes.size(); ++i)
+    {
+        if(nodes[i].parentIndex == -1) 
+        {
+            rootIndex = i;
+        }
+    }
 
     std::function<void(int32_t)> dfs = [&](int32_t idx) {
         if(idx < 0) return;
@@ -354,7 +364,7 @@ void SVO::flattenTree()
         }
         };
 
-    for(int32_t r : roots) dfs(r);
+    dfs(rootIndex);
 }
 
 void SVO::computeWorldAABB(const Node& node, glm::vec3& outMin, glm::vec3& outMax) const
@@ -415,11 +425,9 @@ std::vector<uint32_t> SVO::selectNodes(const glm::vec3& cameraPos, float lodBase
 
     // iterative stack traversal starting at roots
     std::vector<int32_t> stack;
-    for(size_t i = 0; i < nodes.size(); ++i)
-    {
-        if(nodes[i].parentIndex == -1) stack.push_back((int32_t)i);
-    }
-
+    stack.reserve(1024);
+    stack.push_back(rootIndex);
+    
     while(!stack.empty())
     {
         int32_t nodeIdx = stack.back();
@@ -474,12 +482,8 @@ std::vector<uint32_t> SVO::selectNodesScreenSpace(const glm::vec3& cameraPos, fl
     std::vector<uint32_t> result;
     result.reserve(1024);
     std::vector<int32_t> stack;
-
-    // Push root nodes
-    for(size_t i = 0; i < nodes.size(); ++i)
-    {
-        if(nodes[i].parentIndex == -1) stack.push_back((int32_t)i);
-    }
+    stack.reserve(1024);
+    stack.push_back(rootIndex);
 
     while(!stack.empty())
     {
