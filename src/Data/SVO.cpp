@@ -281,7 +281,6 @@ void SVO::buildTree()
                 coarseBricks.push_back(cb);
                 parent.brickIndex = static_cast<int32_t>(coarseBricks.size() - 1);
                 // Go through the coarse bricks (simple loop of 8) to assign node color
-                // TODO: If all the bricks are of same colors the coarse brick could be collapsed and represented by the best color. After testing coarse brick logic adding this is trivial.
                 counts.fill(0); best = 0; bestColor = 0;
                 for(auto c : cb.voxels)
                 {

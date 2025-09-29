@@ -340,8 +340,7 @@ void VoxelRenderingSVOScene::loadData(uint32_t modelID)
     size_t coarseBrickBufferSize = coarseBricks.size() * sizeof(CoarseBrick);
     coarseBrickBuffer = pEngine->createAndUploadGPUBuffer(coarseBrickBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, coarseBricks.data());
 
-    // TODO: Once data is upload no need to store flat gpu nodes in the memory
-    // TODO UPDATE: I actually reuse flatGPUNodes to avoid recomputation of AABB's. I might store another array for lookups and delete GPU Nodes as they are larger in memory per unit
+    // I actually reuse flatGPUNodes to avoid recomputation of AABB's. I might store another array for lookups and delete GPU Nodes as they are larger in memory per unit
     // pSvo->clearFlatGPUNodes();
     pSvo->clearBricks();
 
