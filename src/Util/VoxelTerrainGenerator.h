@@ -45,11 +45,8 @@ struct TerrainParams
     uint8_t grassColor = 5;
     uint8_t dirtColor = 6;
 
-    // sea level (if you want oceans)
+    // sea level
     int seaLevel = 32;
-
-    // downscale speedups: skip inner loops for very large grids
-    bool fastMode = false; // if true, stride=1 normally, else you may run with small stride
 };
 
 struct VoxelColor
