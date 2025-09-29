@@ -2,14 +2,15 @@
 
 #include "Scene.h"
 
-#include <Pass/VoxelRenderingIndirectPass.h>
-#include <Pass/ChunkVisualizationPass.h>
+#include <Pass/VoxelRenderingIndirectSVOPass.h>
 #include <Pass/HZBDownSamplePass.h>
 
-#include <Data/ChunkedVolumeData.h>
+#include <Data/SVO.h>
 #include <Data/ogt_vox.h>
 
-class VoxelRenderingScene : public Scene
+#include <Util/LodSelectorAsync.h>
+
+class VoxelRenderingSVOScene : public Scene
 {
 public:
 	virtual void load(VulkanEngine* engine) override;
@@ -19,37 +20,37 @@ public:
 	virtual void drawFrame(VkCommandBuffer cmd) override; // called by drawing logic in engine to draw the scene
 	virtual void performPreRenderPassOps(VkCommandBuffer cmd); // called before drawFrame to perform any operations that would like to be done after rendering 
 	virtual void performPostRenderPassOps(VkCommandBuffer cmd); // called after drawFrame to perform any operations that would like to be done after rendering 
-	virtual ~VoxelRenderingScene();
+	virtual ~VoxelRenderingSVOScene();
 private:
 	void loadData(uint32_t modelID);
 	void clearBuffers();
-
+	
 	const ogt_vox_scene* loadVox(const char* voxFilePath) const;
-
 	void createColorPaletteBuffer(const void* colorTable);
 private:
 	// Data Loading Params
 	std::vector<std::string> modelNames; // This is for selecting the organ data from UI. The names are hardcoded. 
 	uint32_t selectedModelID; // Keep track of the current data ID to see if the data is changed.
 private:
-	glm::uvec3 chunkSize;
-	glm::uvec3 shellSize;
 	glm::vec3 gridLowerCornerPos; // in world space
 	glm::vec3 gridUpperCornerPos; // in world space
-	std::unique_ptr<ChunkedVolumeData> chunkedVolumeData;
-	AllocatedBuffer voxelChunksBuffer; // a pre-determined sized buffer that holds all the chunks
-	VkDeviceAddress voxelChunksBufferBaseAddress;
-	bool showChunks = false;
+	std::unique_ptr<SVO> pSvo;
+	AllocatedBuffer svoNodeGPUBuffer; // flattened SVO GPU Nodes
+	AllocatedBuffer fineBrickBuffer;
+	AllocatedBuffer coarseBrickBuffer;
 	// Indirect 
-	AllocatedBuffer chunkMetadataBuffer;
-	AllocatedBuffer chunkDrawDataBuffer;
-	uint32_t numActiveChunks; // In Voxel Renderer, all the chunks are always active, at least for now.
-	AllocatedBuffer activeChunkIndicesBuffer;
-	AllocatedBuffer drawChunkCountBuffer;
+	AllocatedBuffer nodeDrawDataBuffer;
+	AllocatedBuffer drawNodeCountBuffer;
+	AllocatedBuffer activeNodeIndicesStagingBuffer; // when camera moves active nodes change due to LOD
+	AllocatedBuffer activeNodeIndicesBuffer;
 	// Resources
 	AllocatedBuffer colorPaletteBuffer; 
-private:
-	// Dispatch related constants
-	uint8_t blockSize;
-	size_t blocksPerChunk;
+	// Properties
+	float fov;
+	float aspectRatio;
+	float LODPixelThreshold;
+	float prevLODPixelThreshold; // to trigger LOD selection
+
+	std::unique_ptr<LODSelectorAsync> pLodSelector;
+	LODSelectorAsync::Params lodParams;
 };

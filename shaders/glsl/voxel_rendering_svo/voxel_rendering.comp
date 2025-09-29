@@ -2,6 +2,7 @@
 #extension GL_GOOGLE_include_directive : enable
 #extension GL_KHR_shader_subgroup_arithmetic : require
 #extension GL_KHR_shader_subgroup_ballot : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
 
 #include "input_structures.h"
 
@@ -83,53 +84,17 @@ bool cullTest(vec3 lowerCornerPos, vec3 upperCornerPos)
     return false;
 }
 
-uvec3 decodeBlock(uint blockLinear, uvec3 n)
-{
-    uint xy = n.x * n.y;
-    uint z = blockLinear / xy;
-    uint remaining = blockLinear % xy;
-    uint y = remaining / n.x;
-    uint x = remaining % n.x;
-    return uvec3(x, y, z);
-}
-
 void main()
 {
-    // Per-chunk subdivision
-    const uvec3 groupsPerChunk = chunkSize / uvec3(BLOCK_SIZE);
-    const uint  blocksPerChunk = groupsPerChunk.x * groupsPerChunk.y * groupsPerChunk.z;
-
-    // Flat global task index over all (chunk, block) pairs
+    // Flat global task index over all nodes. Each thread processes a single node
     uint gtid = gl_GlobalInvocationID.x;
-    uint totalTasks = numChunks * blocksPerChunk;
-    if (gtid >= totalTasks) return;
+    if (gtid >= numActiveNodes) return;
 
-    uint chunkID = gtid / blocksPerChunk;
-    uint blockID = gtid - chunkID * blocksPerChunk;
+    uint nodeID = activeNodeIndicesBuffer.indices[gtid];
+    SVONodeGPU node = svoNodeGPUBuffer.nodes[nodeID];
 
-    ChunkMetadata metadata = chunkMetadataBuffer.chunkMetadata[chunkID];
-
-    // Cheap coarse chunk cull
-    if (!cullTest(metadata.lowerCornerPos, metadata.upperCornerPos)) 
-    {
-        return;
-    }
-
-    // This thread's block coordinates in the chunk
-    uvec3 b = decodeBlock(blockID, groupsPerChunk);
-
-    // Block AABB
-    vec3 blockStep = ((metadata.upperCornerPos - metadata.lowerCornerPos) / vec3(chunkSize)) * float(BLOCK_SIZE);
-
-    vec3 stepX = vec3(blockStep.x, 0.0, 0.0);
-    vec3 stepY = vec3(0.0, blockStep.y, 0.0);
-    vec3 stepZ = vec3(0.0, 0.0, blockStep.z);
-
-    vec3 blockLower = metadata.lowerCornerPos + vec3(b) * blockStep;
-    vec3 blockUpper = blockLower + blockStep;
-
-    // Fine cull per block
-    bool survive = cullTest(blockLower, blockUpper);
+    // cull per node
+    bool survive = cullTest(node.lowerCorner, node.upperCorner);
 
     // Subgroup-aggregated compaction
     uint vote   = survive ? 1u : 0u;
@@ -142,7 +107,7 @@ void main()
     uint base = 0u;
     if (subgroupElect()) 
     {
-        base = atomicAdd(drawChunkCountBuffer.drawChunkCount, live);
+        base = atomicAdd(drawNodeCountBuffer.drawNodeCount, live);
     }
     
     // Tell everyone else in the subgroup the value
@@ -151,7 +116,6 @@ void main()
     if (survive) 
     {
         uint outIndex = base + prefix;
-        chunkDrawDataBuffer.chunkDrawData[outIndex].chunkID = chunkID;
-        chunkDrawDataBuffer.chunkDrawData[outIndex].localWorkgroupID = b.x + groupsPerChunk.x * (b.y + groupsPerChunk.y * b.z);
+        nodeDrawDataBuffer.nodeDrawData[outIndex].nodeID = nodeID;
     }
 }

@@ -1,0 +1,192 @@
+#version 450
+#extension GL_GOOGLE_include_directive : enable
+#extension GL_EXT_mesh_shader : require
+#extension GL_KHR_shader_subgroup_ballot : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+#extension GL_EXT_scalar_block_layout : require
+#extension GL_EXT_shader_8bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+
+
+#include "input_structures.h"
+
+/* 
+	Only 6 threads do work in this shader but regardless minimum warp size 32 so I am still setting local_size_x to 32.
+*/
+
+// TODO: All the vertices in a face shares the same data so passing per vertex is a waste.
+layout(location = 0) out MeshOut
+{
+	vec3 normal;
+    flat uint colorIndex;
+} meshOut[];
+
+taskPayloadSharedEXT TaskPayload taskPayload;
+
+// These are also the face normals
+const ivec3 neighborOffset[6] = ivec3[6](
+    ivec3( 1,0,0), ivec3(-1,0,0),
+    ivec3( 0,1,0), ivec3( 0,-1,0),
+    ivec3( 0,0,1), ivec3( 0, 0,-1)
+);
+
+/* 
+	The thread that works on its face will check the corresponding neighbor for occupation. If the neighbor is occupied that face will never be visible anyways. So, no need to render it.
+
+    This is only used while processing leaf nodes (bricks). Coarser nodes doesn't check this. 
+*/
+bool neighborOccupied(uint nodeID, uvec3 voxelID, uint faceId, uint brickSize) 
+{
+	// Index of the neighbor
+    ivec3 neighborID = ivec3(voxelID) + neighborOffset[faceId];
+    if(any(lessThan(neighborID, ivec3(0))) || any(greaterThan(neighborID, ivec3(brickSize - 1)))) return false;
+	return voxelValue(nodeID, neighborID) != 0;
+}
+
+// Generate 4 corners for a given face index (0..5) in the world space
+void makeFaceCorners(int faceId, vec3 center, vec3 size, out vec3 P[4]) 
+{
+    vec3 h = 0.5 * size;
+    switch (faceId) 
+	{
+    case 0: // +X
+        P[0] = center + vec3( h.x, -h.y, -h.z);
+        P[1] = center + vec3( h.x,  -h.y, h.z);
+        P[2] = center + vec3( h.x,  h.y,  h.z);
+        P[3] = center + vec3( h.x, h.y,  -h.z);
+        break;
+    case 1: // -X
+        P[0] = center + vec3( -h.x, -h.y, -h.z);
+        P[1] = center + vec3( -h.x,  -h.y, h.z);
+        P[2] = center + vec3( -h.x,  h.y,  h.z);
+        P[3] = center + vec3( -h.x, h.y,  -h.z);
+        break;
+    case 2: // +Y
+        P[0] = center + vec3(-h.x,  h.y, h.z);
+        P[1] = center + vec3( h.x,  h.y, h.z);
+        P[2] = center + vec3( h.x,  h.y,  -h.z);
+        P[3] = center + vec3(-h.x,  h.y,  -h.z);
+        break;
+    case 3: // -Y
+        P[0] = center + vec3(-h.x,  -h.y, h.z);
+        P[1] = center + vec3( h.x,  -h.y, h.z);
+        P[2] = center + vec3( h.x,  -h.y,  -h.z);
+        P[3] = center + vec3(-h.x,  -h.y,  -h.z);
+        break;
+    case 4: // +Z
+        P[0] = center + vec3(-h.x, -h.y,  h.z);
+        P[1] = center + vec3( h.x, -h.y,  h.z);
+        P[2] = center + vec3( h.x,  h.y,  h.z);
+        P[3] = center + vec3(-h.x,  h.y,  h.z);
+        break;
+    case 5: // -Z
+        P[0] = center + vec3(-h.x, -h.y,  -h.z);
+        P[1] = center + vec3( h.x, -h.y,  -h.z);
+        P[2] = center + vec3( h.x,  h.y,  -h.z);
+        P[3] = center + vec3(-h.x,  h.y,  -h.z);
+        break;
+    }
+}
+
+layout(local_size_x = 32) in;
+layout(triangles, max_vertices = 12, max_primitives = 6) out;
+void main()
+{
+	const uint threadID  = gl_LocalInvocationID.x;
+	const uint meshletID = taskPayload.meshlets[gl_WorkGroupID.x].meshletID;
+	const uint nodeID = taskPayload.nodeID;
+    SVONodeGPU node = svoNodeGPUBuffer.nodes[nodeID];
+	bool hasBrick = node.brickIndex != 0xFFFFFFFFu; // if there is no leaf brickIndex is -1 == UINT_MAX
+    uint colorIndex;
+    if(hasBrick)
+    {
+        // fetch the color from brick
+        colorIndex = taskPayload.meshlets[gl_WorkGroupID.x].colorIndex;
+    }
+    else
+    {
+        // if coarse node, fetch the color from the node
+        colorIndex = taskPayload.nodeColorIndex;
+    }
+
+	// Reconstruct voxel (x, y, z) from MeshletID to find the index in the brick
+    uint brickSize = (node.level == leafLevel) ? FINE_BRICK_SIZE : COARSE_BRICK_SIZE;
+    uint voxelID_X = meshletID % brickSize;
+    uint voxelID_Y = (meshletID / brickSize) % brickSize;
+    uint voxelID_Z = meshletID / (brickSize * brickSize);
+
+    vec3 voxelSize, voxelCenter;
+    if(hasBrick)
+    {
+        voxelSize = (node.upperCorner - node.lowerCorner) / vec3(brickSize); // In World Space: size vector of a voxel in the brick
+        voxelCenter = node.lowerCorner + vec3(voxelID_X, voxelID_Y, voxelID_Z) * voxelSize;
+    }
+    else
+    {
+        voxelSize = (node.upperCorner - node.lowerCorner); // In World Space: size vector of a coarse level node voxel
+        voxelCenter = node.lowerCorner;
+    }
+
+	// Decide the faces to render
+	bool keep = false; // Only 6 threads will modify this on their stack
+	if(threadID < 6)
+	{
+		vec3 voxelToCamera = sceneData.cameraPos - voxelCenter;
+		bool cameraSide = false;
+		switch(threadID)
+		{
+			case 0: 
+				cameraSide = (voxelToCamera.x > 0.0); // +X
+				break;
+			case 1:
+				cameraSide = (voxelToCamera.x < 0.0); // -X
+				break;
+			case 2:
+				cameraSide = (voxelToCamera.y > 0.0); // +Y
+				break;
+			case 3:
+				cameraSide = (voxelToCamera.y < 0.0); // -Y
+				break;
+			case 4:
+				cameraSide = (voxelToCamera.z > 0.0); // +Z
+				break;
+			case 5:
+				cameraSide = (voxelToCamera.z < 0.0); // -Z
+				break;
+		}
+
+        bool blocked = hasBrick ? neighborOccupied(nodeID, uvec3(voxelID_X, voxelID_Y, voxelID_Z), threadID, brickSize) : false;
+        keep = cameraSide && !blocked;
+	}
+
+	// Find the total number of faces to be rendered
+	uint numFaces = subgroupAdd(uint(keep));
+
+	if (threadID == 0)
+	{
+        SetMeshOutputsEXT(4 * numFaces, 2 * numFaces);
+	}
+
+	if(threadID < 6 && keep)
+	{
+		// Get the offset to write the face information with prefix-sum
+		uint faceWriteOffset = subgroupExclusiveAdd(uint(keep));
+
+        uint baseV = 4u * faceWriteOffset;
+        uint baseP = 2u * faceWriteOffset;
+
+		vec3 P[4];
+        makeFaceCorners(int(threadID), voxelCenter, voxelSize, P);
+        vec3 N = neighborOffset[threadID];
+
+		for (uint i = 0u; i < 4u; ++i) 
+		{
+            gl_MeshVerticesEXT[baseV + i].gl_Position = sceneData.viewproj * vec4(P[i], 1.0);
+            meshOut[baseV + i].normal = N;
+            meshOut[baseV + i].colorIndex = colorIndex;
+        }
+
+        gl_PrimitiveTriangleIndicesEXT[baseP + 0] = uvec3(baseV+0, baseV+1, baseV+2);
+        gl_PrimitiveTriangleIndicesEXT[baseP + 1] = uvec3(baseV+0, baseV+2, baseV+3);
+	}
+}

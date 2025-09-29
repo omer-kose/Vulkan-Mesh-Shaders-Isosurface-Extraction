@@ -1056,6 +1056,7 @@ void VulkanEngine::m_initPasses()
     HZBDownSamplePass::Init(this);
     MarchingCubesIndirectPass::Init(this);
     VoxelRenderingIndirectPass::Init(this);
+    VoxelRenderingIndirectSVOPass::Init(this);
 }
 
 void VulkanEngine::m_clearPassResources()
@@ -1066,6 +1067,7 @@ void VulkanEngine::m_clearPassResources()
     HZBDownSamplePass::ClearResources(this);
     MarchingCubesIndirectPass::ClearResources(this);
     VoxelRenderingIndirectPass::ClearResources(this);
+    VoxelRenderingIndirectSVOPass::ClearResources(this);
 }
 
 void VulkanEngine::m_initMaterialLayouts()
@@ -1230,7 +1232,7 @@ void VulkanEngine::m_initGlobalSceneBuffer()
 void VulkanEngine::m_initSceneInformation()
 {
     // Harcoding the scene names. 
-    sceneNames = { "Organ Visualization", "Voxel Rendering"};
+    sceneNames = { "Organ Visualization", "Voxel Rendering", "Voxel Rendering SVO", "Testbed"};
     selectedSceneID = 0;
     loadScene(selectedSceneID);
 }
@@ -1247,6 +1249,14 @@ void VulkanEngine::loadScene(uint32_t sceneID)
             break;
         case 1:
             activeScene = std::make_unique<VoxelRenderingScene>();
+            activeScene->load(this);
+            break;
+        case 2:
+            activeScene = std::make_unique<VoxelRenderingSVOScene>();
+            activeScene->load(this);
+            break;
+        case 3:
+            activeScene = std::make_unique<TestbedScene>();
             activeScene->load(this);
             break;
         default:

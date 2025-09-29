@@ -1,0 +1,70 @@
+#version 450
+#extension GL_GOOGLE_include_directive : enable
+#extension GL_EXT_mesh_shader : require
+#extension GL_KHR_shader_subgroup_ballot : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+#extension GL_EXT_scalar_block_layout : require
+#extension GL_EXT_shader_8bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+
+#include "input_structures.h"
+
+taskPayloadSharedEXT TaskPayload taskPayload;
+
+layout(local_size_x = 32) in;
+void main()
+{
+	uint threadID = gl_LocalInvocationID.x;
+	uint workgroupID = gl_WorkGroupID.x; 
+
+	NodeDrawData drawData = nodeDrawDataBuffer.nodeDrawData[workgroupID];
+	SVONodeGPU node = svoNodeGPUBuffer.nodes[drawData.nodeID];
+
+	bool hasBrick = node.brickIndex != 0xFFFFFFFFu; // if there is no leaf brickIndex is -1 == UINT_MAX
+
+	if(hasBrick)
+	{
+		// Brick processing
+		/*
+			Either leaves or parents of the leaves has bricks namely fine and coarse bricks. They will follow the same kind of processing.
+		*/
+		uint brickSize = (node.level == leafLevel) ? FINE_BRICK_SIZE : COARSE_BRICK_SIZE;
+		uint brickVolume = brickSize * brickSize * brickSize;
+		uint count = 0;
+		for (uint i = threadID; i < brickVolume; i += 32)
+		{
+			uint x = i % brickSize;
+			uint y = (i / brickSize) % brickSize;
+			uint z = i / (brickSize * brickSize);
+
+			uvec3 voxelID = uvec3(x,y,z);
+			uint value = voxelValue(drawData.nodeID, voxelID); 
+
+			bool accept = value > 0; // Voxel is accepted if occupied  
+			uint payloadIndex = subgroupExclusiveAdd(uint(accept));
+
+			if (accept)
+			{
+				// Output a unique meshlet ID for the mesh shader to decode (simply flattening the voxel index in (x,y,z) to a single float which can be easily converted back to voxel index)
+				uint meshletID = x + brickSize * (y + brickSize * z);
+				taskPayload.meshlets[count + payloadIndex].meshletID = meshletID;
+				taskPayload.meshlets[count + payloadIndex].colorIndex = value;
+				taskPayload.nodeID = drawData.nodeID;
+			}
+
+			count += subgroupAdd(uint(accept));
+		}
+
+		EmitMeshTasksEXT(count, 1, 1);
+	}
+	else
+	{
+		// Just dispatch a single mesh shader to render it as a single cube of corresponding size
+		if(threadID == 0)
+		{
+			taskPayload.nodeID = drawData.nodeID;
+			taskPayload.nodeColorIndex = node.colorIndex;
+		    EmitMeshTasksEXT(1, 1, 1);
+		}
+	}
+}

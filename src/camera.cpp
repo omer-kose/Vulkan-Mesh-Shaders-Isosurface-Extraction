@@ -55,6 +55,8 @@ void Camera::processSDLEvent(SDL_Event& e)
         if(e.key.keysym.sym == SDLK_d) { movement.right = true; }
         if(e.key.keysym.sym == SDLK_SPACE) { movement.up = true; }
         if(e.key.keysym.sym == SDLK_LCTRL) { movement.down = true; }
+
+        dirtyBit = true;
     }
 
     if(e.type == SDL_KEYUP)
@@ -65,15 +67,19 @@ void Camera::processSDLEvent(SDL_Event& e)
         if(e.key.keysym.sym == SDLK_d) { movement.right = false; }
         if(e.key.keysym.sym == SDLK_SPACE) { movement.up = false; }
         if(e.key.keysym.sym == SDLK_LCTRL) { movement.down = false; }
+
+        dirtyBit = true;
     }
 
     if(e.type == SDL_MOUSEBUTTONDOWN && e.button.button == SDL_BUTTON_RIGHT)
     {
         rightMouseButtonDown = true;
+        dirtyBit = true;
     }
     else if(e.type == SDL_MOUSEBUTTONUP && e.button.button == SDL_BUTTON_RIGHT)
     {
         rightMouseButtonDown = false;
+        dirtyBit = true;
     }
     else if(e.type == SDL_MOUSEMOTION && rightMouseButtonDown)
     {
@@ -92,6 +98,8 @@ void Camera::processSDLEvent(SDL_Event& e)
         orientation = pitchRot * orientation;
 
         orientation = glm::normalize(orientation);
+
+        dirtyBit = true;
     }
 }
 
@@ -130,4 +138,14 @@ void Camera::setSpeed(float speed_in)
 void Camera::setMouseSenstivity(float mouseSensitivity_in)
 {
     mouseSensitivity = mouseSensitivity_in;
+}
+
+bool Camera::isDirty() const
+{
+    return dirtyBit;
+}
+
+void Camera::clearDirtyBit()
+{
+    dirtyBit = false;
 }

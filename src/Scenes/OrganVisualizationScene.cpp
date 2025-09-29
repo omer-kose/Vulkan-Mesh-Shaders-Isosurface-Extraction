@@ -296,10 +296,6 @@ void OrganVisualizationChunksScene::loadData(uint32_t organID)
     MarchingCubesIndirectPass::SetInputIsovalue(isovalue);
     MarchingCubesIndirectPass::SetChunkBufferAddresses(pEngine->getBufferDeviceAddress(chunkMetadataBuffer.buffer), pEngine->getBufferDeviceAddress(chunkDrawDataBuffer.buffer), pEngine->getBufferDeviceAddress(activeChunkIndicesBuffer.buffer), pEngine->getBufferDeviceAddress(drawChunkCountBuffer.buffer));
 
-    // Occluder Prepass params
-    OccluderPrePass::SetChunkBufferAddresses(pEngine->getBufferDeviceAddress(chunkMetadataBuffer.buffer), pEngine->getBufferDeviceAddress(chunkDrawDataBuffer.buffer));
-    OccluderPrePass::SetChunkSize(chunkSize);
-
     // Prepare Chunk Visualization
     ChunkVisualizationPass::SetChunkBufferAddresses(pEngine->getBufferDeviceAddress(chunkMetadataBuffer.buffer), pEngine->getBufferDeviceAddress(activeChunkIndicesBuffer.buffer));
     ChunkVisualizationPass::SetNumActiveChunks(numActiveChunks);
