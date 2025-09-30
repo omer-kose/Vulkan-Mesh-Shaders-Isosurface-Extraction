@@ -97,3 +97,8 @@ Voxel pipeline workflow is as follows:
 
 Despite the extreme density (up to **4 billion voxels** in a compact area), the pipeline achieves **≥60 FPS** on average without any explicit meshing and purely based on voxel data. Normally, fields of this density would span kilometers in a real-world scenario, but testing them in a compact space stresses the rendering system and demonstrates the efficiency of the GPU-driven Voxel pipeline.
 
+## References
+- The engine underwent lots of changes but the baseline is built following: [vkguide](https://vkguide.dev/)
+- [Emil Persson's Efficient Implementation of Marching Cubes in Task and Mesh Shaders](https://www.humus.name/index.php?page=3D)
+- [Niagara's GPU based Frustum and Occlusion Pipeline](https://github.com/zeux/niagara)
+- [Projecting Bounding Box to NDC for Hierarchical Z-Buffer Occlusion Culling](https://zeux.io/2023/01/12/approximate-projected-bounds/)
