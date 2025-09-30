@@ -44,14 +44,46 @@ This is the implementation of my Master's Thesis "Isosurface Extraction with Vul
 
 ### Marching Cubes Isosurface Extraction
 
-| ![Head](https://github.com/user-attachments/assets/7bb0c2e1-d95e-4f53-83b7-72e623460854) | ![Kidney](https://github.com/user-attachments/assets/4ec444e3-134d-4c2b-932f-365c0cc72419) |
-|:--:|:--:|
-| *CT Head Visualization (256×256×113)* | *Kidney Visualization (629×515×955)* |
+<table>
+  <tr>
+    <td align="center">
+      <video src="https://github.com/user-attachments/assets/head-video-id.mp4](https://github.com/user-attachments/assets/54ff955c-f53a-450c-b757-b121e1bf26d4" width="320" controls></video>
+      <br>
+      <sub>CT Head Visualization (256×256×113)</sub>
+    </td>
+    <td align="center">
+      <video src="https://github.com/user-attachments/assets/kidney-video-id.mp4](https://github.com/user-attachments/assets/2cb69bae-cbfc-4670-bc98-60ede8214b1b" width="320" controls></video>
+      <br>
+      <sub>Kidney Visualization (629×515×955)</sub>
+    </td>
+  </tr>
+</table>
 
-The kidney dataset highlights a key challenge of **Marching Cubes**: as input resolution increases, the algorithm produces a large number of tiny triangles, creating a bottleneck since millions of small primitives must be rendered.  
+The kidney data highlights a key challenge of **Marching Cubes**: as input resolution increases, the algorithm produces a large number of tiny triangles, creating a bottleneck since millions of small primitives must be rendered.  
 
 To address this, the pipeline leverages **GPU-driven frustum and occlusion culling** on finer 4x4x4 blocks of the chunks. Only visible blocks are dispatched indirectly through the mesh shader pipeline, significantly reducing the rendering workload and improving performance.
 
+
 ### Voxel Rendering
+
+<table>
+  <tr>
+    <td align="center">
+      <video src="https://github.com/user-attachments/assets/23e3c257-bd9a-4183-911c-51d8b4c4894a" width="320" controls></video>
+      <br>
+      <sub>CT Generated Voxel Field (1024x1024x1024)</sub>
+    </td>
+    <td align="center">
+      <video src="https://github.com/user-attachments/assets/e9d03e92-67d4-44f2-9241-6722d38475e8" width="320" controls></video>
+      <br>
+      <sub>Kidney Visualization (2048x1024x2048)</sub>
+    </td>
+  </tr>
+</table>
+
+
+
+
+
 
 
