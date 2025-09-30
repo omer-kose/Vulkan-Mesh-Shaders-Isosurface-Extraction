@@ -84,7 +84,7 @@ This demonstrates the performance of the pipeline on very dense voxel fields, us
 
 Voxel pipeline workflow is as follows:
 
-1. **Sparse Voxel Octree Extraction:**  
+1. **Brick Based Sparse Voxel Octree Extraction:**  
    A brick-based sparse voxel octree is extracted from the dense field, and its GPU nodes are uploaded once.  
 
 2. **LOD Selection:**  
@@ -104,3 +104,4 @@ Despite the extreme density (up to **4 billion voxels** in a compact area), the 
 - [Projecting Bounding Box to NDC for Hierarchical Z-Buffer Occlusion Culling](https://zeux.io/2023/01/12/approximate-projected-bounds/)
 - [Converting the CTHead data](https://github.com/keijiro/ComputeMarchingCubes/blob/main/Assets/VolumeData/VolumeDataConverter.compute)
 - [Organ Atlas](https://human-organ-atlas.esrf.fr/)
+
