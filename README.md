@@ -102,3 +102,5 @@ Despite the extreme density (up to **4 billion voxels** in a compact area), the 
 - [Emil Persson's Efficient Implementation of Marching Cubes in Task and Mesh Shaders](https://www.humus.name/index.php?page=3D)
 - [Niagara's GPU based Frustum and Occlusion Pipeline](https://github.com/zeux/niagara)
 - [Projecting Bounding Box to NDC for Hierarchical Z-Buffer Occlusion Culling](https://zeux.io/2023/01/12/approximate-projected-bounds/)
+- [Converting the CTHead data](https://github.com/keijiro/ComputeMarchingCubes/blob/main/Assets/VolumeData/VolumeDataConverter.compute)
+- [Organ Atlas](https://human-organ-atlas.esrf.fr/)
