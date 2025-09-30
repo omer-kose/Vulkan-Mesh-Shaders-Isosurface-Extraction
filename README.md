@@ -37,10 +37,10 @@ This is the implementation of my Master's Thesis "Isosurface Extraction with Vul
   For voxel rendering, a **brick-based sparse voxel octree** is implemented:  
   - Bricks are **4×4×4** in size, providing fine-grained elimination of empty space.  
   - Greatly improves **memory efficiency** and enables **level-of-detail (LOD)** rendering.  
-  - Prevents processing of empty air regions, further accelerating the pipeline.  
+  - Prevents processing of empty air regions, further accelerating the pipeline.
+  - LOD selection is done in an asynchronous worker thread using double buffering. Each time main render thread requests, a result is ready which prevents CPU spikes when the camera moves.
 
 ## Results
-
 
 ### Marching Cubes Isosurface Extraction
 
@@ -51,5 +51,7 @@ This is the implementation of my Master's Thesis "Isosurface Extraction with Vul
 The kidney dataset highlights a key challenge of **Marching Cubes**: as input resolution increases, the algorithm produces a large number of tiny triangles, creating a bottleneck since millions of small primitives must be rendered.  
 
 To address this, the pipeline leverages **GPU-driven frustum and occlusion culling** on finer 4x4x4 blocks of the chunks. Only visible blocks are dispatched indirectly through the mesh shader pipeline, significantly reducing the rendering workload and improving performance.
+
+### Voxel Rendering
 
 
