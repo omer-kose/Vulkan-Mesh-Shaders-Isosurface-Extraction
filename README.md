@@ -35,12 +35,12 @@ This is the implementation of my Master's Thesis "Isosurface Extraction with Vul
 
 - **Sparse Voxel Octree with Bricks (Voxel Rendering)**  
   For voxel rendering, a **brick-based sparse voxel octree** is implemented:  
-  - Bricks are **4×4×4** in size, providing fine-grained elimination of empty space.  
+  - Bricks are **4×4×4** in size, providing fine-grained elimination of empty space.
   - Greatly improves **memory efficiency** and enables **level-of-detail (LOD)** rendering.  
   - Prevents processing of empty air regions, further accelerating the pipeline.
   - LOD selection is done in an asynchronous worker thread using double buffering. Each time main render thread requests, a result is ready which prevents CPU spikes when the camera moves.
 
-## Results
+## Results and Analysis
 
 ### Marching Cubes Isosurface Extraction
 
@@ -61,8 +61,7 @@ This is the implementation of my Master's Thesis "Isosurface Extraction with Vul
 
 The kidney data highlights a key challenge of **Marching Cubes**: as input resolution increases, the algorithm produces a large number of tiny triangles, creating a bottleneck since millions of small primitives must be rendered.  
 
-To address this, the pipeline leverages **GPU-driven frustum and occlusion culling** on finer 4x4x4 blocks of the chunks. Only visible blocks are dispatched indirectly through the mesh shader pipeline, significantly reducing the rendering workload and improving performance.
-
+To address this, the pipeline leverages **GPU-driven frustum and occlusion culling** on finer 4x4x4 blocks of the chunks. Only visible blocks are dispatched indirectly through the mesh shader pipeline, significantly reducing the rendering workload and improving performance. Task shaders processes those 4x4x4 blocks efficiently and dispatches mesh shader groups per voxels. Each mesh shader group, processes a single voxel and extracts required information, including normals for free by using subgroup operations, from the Marching Cubes table. 
 
 ### Voxel Rendering
 
@@ -71,19 +70,30 @@ To address this, the pipeline leverages **GPU-driven frustum and occlusion culli
     <td align="center">
       <video src="https://github.com/user-attachments/assets/23e3c257-bd9a-4183-911c-51d8b4c4894a" width="320" controls></video>
       <br>
-      <sub>CT Generated Voxel Field (1024x1024x1024)</sub>
+      <sub>Generated Voxel Field (1024×1024×1024)</sub>
     </td>
     <td align="center">
       <video src="https://github.com/user-attachments/assets/e9d03e92-67d4-44f2-9241-6722d38475e8" width="320" controls></video>
       <br>
-      <sub>Kidney Visualization (2048x1024x2048)</sub>
+      <sub>Generated Voxel Field (2048×1024×2048)</sub>
     </td>
   </tr>
 </table>
 
+This demonstrates the performance of the pipeline on very dense voxel fields, using **GPU-based culling and LOD**, on a compact range to make the entire field visible for limit-testing.  
 
+Voxel pipeline workflow is as follows:
 
+1. **Sparse Voxel Octree Extraction:**  
+   A brick-based sparse voxel octree is extracted from the dense field, and its GPU nodes are uploaded once.  
 
+2. **LOD Selection:**  
+   A worker thread computes LOD selection in parallel to render thread, producing a flat list of node indices for the compute shader. In the compute shader, frustum and occlusion culling is applied, so only visible nodes are dispatched indirectly.
 
+3. **Task Shader Processing:**  
+   - **LOD0:** Bricks are processed at the voxel level for high-detail rendering.  
+   - **LOD1:** Immediate parent bricks (coarse **2×2×2** bricks created by downsampling) are extracted and rendered by the task shader.  
+   - **LOD2+ :** Higher-level bricks are collapsed into single nodes, rendered as individual cubes.  
 
+Despite the extreme density (up to **4 billion voxels** in a compact area), the pipeline achieves **≥60 FPS** on average without any explicit meshing and purely based on voxel data. Normally, fields of this density would span kilometers in a real-world scenario, but testing them in a compact space stresses the rendering system and demonstrates the efficiency of the GPU-driven Voxel pipeline.
 
