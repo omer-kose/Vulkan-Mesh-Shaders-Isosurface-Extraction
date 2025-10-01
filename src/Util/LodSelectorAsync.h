@@ -24,7 +24,7 @@ public:
     };
 
     // ctor: reference to SVO (must outlive this selector)
-    // workerThreads: number of background threads (1 is a good default, in my tests multithreads made the performance worse)
+    // workerThreads: number of background threads (1 is a good default)
     // maxNodesPerTick: budget processed before tiny yields (for smoothnesss)
     // throttleMillis: tiny sleep between chunks (reduce CPU spikes)
     // movementThreshold: world-space movement to trigger recompute

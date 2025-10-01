@@ -76,11 +76,13 @@ public:
     const std::vector<CoarseBrick>& getCoarseBricks() const;
     const int getRootIndex() const;
     void clearBricks();
+    // Note: Immediate node selection via SVO causes stuttering
     std::vector<uint32_t> selectNodes(const glm::vec3& cameraPos, float lodBaseDist) const;
     std::vector<uint32_t> selectNodesScreenSpace(const glm::vec3& cameraPos, float fovY, float aspect, uint32_t screenHeight, float pixelThreshold) const;
     size_t estimateMemoryUsageBytes() const;
     uint32_t getLeafLevel() const;
 
+    // Async LOD selector will handle LOD selection 
     friend class LODSelectorAsync;
 private:
     // Compact node representation with explicit children indices

@@ -357,11 +357,12 @@ void SVO::flattenTree()
         flatNodesGPU.push_back(gn);
 
         // traverse children in canonical order
-        for(int i = 0; i < 8; ++i) {
+        for(int i = 0; i < 8; ++i) 
+        {
             int32_t c = n.children[i];
             if(c >= 0) dfs(c);
         }
-        };
+    };
 
     dfs(rootIndex);
 }
@@ -541,6 +542,7 @@ size_t SVO::estimateMemoryUsageBytes() const
     memory += nodes.size() * sizeof(Node);
     memory += flatNodesGPU.size() * sizeof(SVONodeGPU);
     memory += fineBricks.size() * sizeof(FineBrick);
+    memory += coarseBricks.size() * sizeof(CoarseBrick);
     return memory;
 }
 

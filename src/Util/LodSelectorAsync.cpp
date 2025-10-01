@@ -97,7 +97,7 @@ void LODSelectorAsync::start()
                         }
                     }
 
-                    // Limit the number of nodes processed in this frame (tick) to prevent stuttering especially when camera moves. This can create a slight lagging when selection is forced but gives much smoother results
+                    // Limit the number of nodes processed in this frame (tick) to prevent stuttering especially when camera moves. This can cause a slight lagging when selection is forced but gives much smoother camera movement
                     processedNodes++;
                     if(processedNodes >= maxNodesPerTick)
                     {
