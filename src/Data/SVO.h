@@ -81,8 +81,6 @@ public:
     size_t estimateMemoryUsageBytes() const;
     uint32_t getLeafLevel() const;
 
-    // For unit tests
-    friend class SVOUnitTests;
     friend class LODSelectorAsync;
 private:
     // Compact node representation with explicit children indices
