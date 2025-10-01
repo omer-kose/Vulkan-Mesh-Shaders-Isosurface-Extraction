@@ -52,7 +52,7 @@ This is the implementation of my Master's Thesis "Isosurface Extraction with Vul
       <sub>CT Head Visualization (256×256×113)</sub>
     </td>
     <td align="center">
-      <video src="https://github.com/user-attachments/assets/kidney-video-id.mp4](https://github.com/user-attachments/assets/2cb69bae-cbfc-4670-bc98-60ede8214b1b" width="320" controls></video>
+      <video src="https://github.com/user-attachments/assets/e5e343df-bea6-4472-8e2f-588dae2b0a86" width="320" controls></video>
       <br>
       <sub>Kidney Visualization (629×515×955)</sub>
     </td>
@@ -104,4 +104,5 @@ Despite the extreme density (up to **4 billion voxels** in a compact area), the 
 - [Projecting Bounding Box to NDC for Hierarchical Z-Buffer Occlusion Culling](https://zeux.io/2023/01/12/approximate-projected-bounds/)
 - [Converting the CTHead data](https://github.com/keijiro/ComputeMarchingCubes/blob/main/Assets/VolumeData/VolumeDataConverter.compute)
 - [Organ Atlas](https://human-organ-atlas.esrf.fr/)
+
 
