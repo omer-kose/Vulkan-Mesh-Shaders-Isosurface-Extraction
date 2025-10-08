@@ -29,7 +29,7 @@ struct SVONodeGPU
     glm::vec3 lowerCorner;
     glm::vec3 upperCorner;
     uint8_t   colorIndex;
-    uint8_t   level;      // 0 = finest voxels (we use bricks at leafLevel)
+    uint8_t   level;
     uint32_t  brickIndex; // UINT32_MAX => no brick present (mono-color leaf or internal)
 };
 
