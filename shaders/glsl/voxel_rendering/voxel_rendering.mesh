@@ -9,10 +9,6 @@
 
 #include "input_structures.h"
 
-/* 
-	Only 6 threads do work in this shader but regardless minimum warp size 32 so I am still setting local_size_x to 32.
-*/
-
 // TODO: All the vertices in a face shares the same data so passing per vertex is a waste.
 layout(location = 0) out MeshOut
 {
@@ -85,7 +81,7 @@ void makeFaceCorners(int faceId, vec3 center, vec3 size, out vec3 P[4])
     }
 }
 
-layout(local_size_x = 32) in;
+layout(local_size_x = 8) in;
 layout(triangles, max_vertices = 12, max_primitives = 6) out;
 void main()
 {
