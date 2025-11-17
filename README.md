@@ -1,6 +1,6 @@
 ﻿# Isosurface Extraction with Vulkan Mesh Shaders
 
-This is the implementation of my Master's Thesis "Isosurface Extraction with Vulkan Mesh Shaders" at Technical University of Munich. 
+This is the implementation of my Master's Thesis [Isosurface Extraction with Vulkan Mesh Shaders](https://drive.google.com/file/d/1giZqseKGV-1DBkXcDBgES0bIaD6pcypC/view?usp=sharing) at Technical University of Munich. 
 
 ## Development Environment
 - C++
@@ -104,6 +104,7 @@ Despite the extreme density (up to **4 billion voxels** in a compact area), the 
 - [Projecting Bounding Box to NDC for Hierarchical Z-Buffer Occlusion Culling](https://zeux.io/2023/01/12/approximate-projected-bounds/)
 - [Converting the CTHead data](https://github.com/keijiro/ComputeMarchingCubes/blob/main/Assets/VolumeData/VolumeDataConverter.compute)
 - [Organ Atlas](https://human-organ-atlas.esrf.fr/)
+
 
 
 
