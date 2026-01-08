@@ -18,13 +18,13 @@ This is the implementation of my Master's Thesis [Isosurface Extraction with Vul
   A fully GPU-driven indirect mesh shader pipeline is implemented, supporting both **frustum culling** and **Hierarchical Z-Buffer occlusion culling** entirely in compute shaders.  
 
 - **Volume-Based Input (No Pre-Extracted Meshes)**  
-  Unlike traditional pipelines that pre-extract and store triangle meshes, this implementation takes a **3D volume** as input—either an **isosurface SDF field** or an **occupancy field**. No explicit mesh storage is required.  
+  Unlike traditional pipelines that pre-extract and store triangle meshes, this implementation takes a **3D volume** as input, either an **isosurface SDF field** or an **occupancy field**. No explicit mesh storage is required.  
 
 - **On-the-Fly Isosurface Extraction with Marching Cubes**  
   For SDF inputs, a **task and mesh shader optimized Marching Cubes algorithm** is used. Triangles are extracted directly on the GPU and rendered in a **single pass per frame**. The design is scalable to any 3D input size that fits in GPU memory. (Inspired by [Emil Persson’s work](https://www.humus.name/index.php?page=3D&ID=93)).  
 
 - **Voxel Rendering Without Triangle Extraction**  
-  For occupancy fields (voxel data), a dedicated **voxel renderer** is implemented using task and mesh shaders. Hidden surfaces are culled, and visible voxel faces are directly rasterized in a **single pass**—again, without storing any explicit triangles.  
+  For occupancy fields (voxel data), a dedicated **voxel renderer** is implemented using task and mesh shaders. Hidden surfaces are culled, and visible voxel faces are directly rasterized in a **single pass**, again, without storing any explicit triangles.  
 
 - **Chunk-Based Meshlets**  
   The 3D input data is divided into **chunks**, which serve as meshlets for rendering. Chunks provide multiple benefits:  
@@ -104,6 +104,7 @@ Despite the extreme density (up to **4 billion voxels** in a compact area), the 
 - [Projecting Bounding Box to NDC for Hierarchical Z-Buffer Occlusion Culling](https://zeux.io/2023/01/12/approximate-projected-bounds/)
 - [Converting the CTHead data](https://github.com/keijiro/ComputeMarchingCubes/blob/main/Assets/VolumeData/VolumeDataConverter.compute)
 - [Organ Atlas](https://human-organ-atlas.esrf.fr/)
+
 
 
 
